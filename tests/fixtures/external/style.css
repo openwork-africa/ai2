@@ -1,0 +1,79 @@
+:root {
+  --ink: #1f2933;
+  --muted: #616e7c;
+  --line: #d9e2ec;
+  --paper: #ffffff;
+  --accent: #0b6e4f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.55 Georgia, "Times New Roman", serif;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 20px;
+}
+
+header p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+h1 {
+  font-size: 30px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 19px;
+  margin: 36px 0 12px;
+  color: var(--accent);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.figure {
+  font-size: 28px;
+  font-weight: bold;
+}
+
+footer {
+  margin-top: 48px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+@import url("https://cdn.example-assets.net/theme/print.css");
+
+@font-face {
+  font-family: "Report Serif";
+  src: url("https://fonts.example-assets.net/report-serif.woff2") format("woff2");
+}
+
+header {
+  background: url("https://images.example-assets.net/harbour/banner.jpg") no-repeat right top;
+}
