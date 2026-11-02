@@ -206,8 +206,9 @@ pub fn run(
     let status = child.wait()?;
     let ok = status.success() && !stopped;
     let message = (!ok).then(|| match status.signal() {
-        _ if stopped => "It took too long and was stopped.".to_string(),
-        Some(libc::SIGTERM) => "It took too long and was stopped.".to_string(),
+        signal if stopped || signal == Some(libc::SIGTERM) => {
+            "It took too long and was stopped.".to_string()
+        }
         signal => format!(
             "It ended with an error ({}).",
             status.code().unwrap_or(128 + signal.unwrap_or(0))
