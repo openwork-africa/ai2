@@ -204,8 +204,9 @@ pub fn run(
     }
     drop(stdin);
     let status = child.wait()?;
-    let ok = status.success();
+    let ok = status.success() && !stopped;
     let message = (!ok).then(|| match status.signal() {
+        _ if stopped => "It took too long and was stopped.".to_string(),
         Some(libc::SIGTERM) => "It took too long and was stopped.".to_string(),
         signal => format!(
             "It ended with an error ({}).",
@@ -266,6 +267,10 @@ mod tests {
         )
         .unwrap();
         assert!(!ended.ok);
+        assert_eq!(
+            ended.message.as_deref(),
+            Some("It took too long and was stopped.")
+        );
     }
 
     #[test]
