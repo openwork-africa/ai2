@@ -2,7 +2,7 @@
 name = "ai2"
 version = "0.1.0"
 edition = "2021"
-description = "Rates a coding agent's run: Modern Security Rating, Run Risk Factor and Agent Malicious Intent"
+description = "Rates a coding agent's run: Modern Security Rating and Run Risk Factor"
 license = "Apache-2.0"
 repository = "https://github.com/openwork-africa/ai2"
 readme = "README.md"
