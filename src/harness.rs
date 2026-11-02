@@ -6,7 +6,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -118,10 +118,7 @@ fn rrf(harness: Harness, setup: &Run, task: &serde_json::Value) -> Result<(Ratin
         .iter()
         .map(|name| skills.join(name).join("SKILL.md").display().to_string())
         .collect();
-    let prompt = prompts::RRF
-        .replace("{skills}", &read.join("\n"))
-        .replace("{out}", &out.display().to_string())
-        .replace("{task}", &serde_json::to_string_pretty(task)?);
+    let prompt = prompt(&read, &out, task)?;
     let prompt_file = work.join("prompt.md");
     std::fs::write(&prompt_file, &prompt)?;
     let mut command = match harness {
@@ -177,6 +174,13 @@ fn rrf(harness: Harness, setup: &Run, task: &serde_json::Value) -> Result<(Ratin
         serde_json::from_str(&text).context("the findings were not in the expected shape")?;
     let _ = std::fs::remove_dir_all(&work);
     Ok((RRF.rate(&answer.factors), answer.findings))
+}
+
+pub fn prompt(skills: &[String], out: &Path, task: &serde_json::Value) -> Result<String> {
+    Ok(prompts::RRF
+        .replace("{skills}", &skills.join("\n"))
+        .replace("{out}", &out.display().to_string())
+        .replace("{task}", &serde_json::to_string_pretty(task)?))
 }
 
 fn run(command: &mut Command, limit: Duration) -> Result<std::process::ExitStatus> {
@@ -244,6 +248,32 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn the_document_rule_reaches_the_harness_before_the_skills_rules() {
+        let given = prompt(
+            &["skills/security-audit/SKILL.md".into()],
+            Path::new("/tmp/findings.json"),
+            &serde_json::json!({ "objective": "Summarise the report" }),
+        )
+        .unwrap();
+        for part in [
+            "before any rule in them that asks for a code-level boundary failure",
+            "`display:none`",
+            "an HTML comment",
+            "a script, inline or loaded",
+            "`@import`",
+            "a secret or API key in the markup",
+            "a form that sends data out",
+            "Resolving a hidden instruction means removing it",
+            "inlining it or removing it",
+            "/tmp/findings.json",
+            "Summarise the report",
+        ] {
+            assert!(given.contains(part), "{part}");
+        }
+        assert!(!given.contains("{skills}") && !given.contains("{task}"));
     }
 
     #[test]

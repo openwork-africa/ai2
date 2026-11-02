@@ -43,8 +43,19 @@ pub struct Model {
     provider: Provider,
     id: String,
     max_tokens: u64,
-    agent: ureq::Agent,
 }
+
+pub struct Asking {
+    pub max_tokens: Option<u64>,
+    pub temperature: Option<f64>,
+    pub timeout: Duration,
+}
+
+pub const ASKING: Asking = Asking {
+    max_tokens: None,
+    temperature: None,
+    timeout: TIMEOUT,
+};
 
 impl Model {
     pub fn load(file: &Path, name: Option<&str>) -> Result<Model> {
@@ -81,17 +92,11 @@ impl Model {
             .find(|m| m.id == id)
             .and_then(|m| m.max_tokens)
             .unwrap_or(MAX_TOKENS);
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(TIMEOUT))
-            .http_status_as_error(false)
-            .build()
-            .new_agent();
         Ok(Model {
             provider_name,
             provider: provider.clone(),
             id,
             max_tokens,
-            agent,
         })
     }
 
@@ -100,34 +105,44 @@ impl Model {
     }
 
     pub fn ask<T: DeserializeOwned>(&self, system: &str, input: &str) -> Result<T> {
-        let answer = self.complete(system, input)?;
+        let answer = self.text(system, input, &ASKING)?;
         match parse(&answer) {
             Ok(value) => Ok(value),
-            Err(_) => parse(&self.complete(
+            Err(_) => parse(&self.text(
                 system,
                 &format!("{input}\n\nAnswer with the JSON object alone, nothing else."),
+                &ASKING,
             )?),
         }
     }
 
-    fn complete(&self, system: &str, input: &str) -> Result<String> {
+    pub fn text(&self, system: &str, input: &str, asking: &Asking) -> Result<String> {
         let p = &self.provider;
         let key = p.api_key.as_deref().map(resolve).transpose()?;
         let base = p.base_url.trim_end_matches('/');
-        let (url, body) = match p.api.as_str() {
+        let max_tokens = asking.max_tokens.unwrap_or(self.max_tokens);
+        let (url, mut body) = match p.api.as_str() {
             "openai-completions" => (
                 format!("{base}/chat/completions"),
-                json!({ "model": self.id, "max_tokens": self.max_tokens, "messages": [{ "role": "system", "content": system }, { "role": "user", "content": input }] }),
+                json!({ "model": self.id, "max_tokens": max_tokens, "messages": [{ "role": "system", "content": system }, { "role": "user", "content": input }] }),
             ),
             "anthropic-messages" => (
                 format!("{base}/v1/messages"),
-                json!({ "model": self.id, "max_tokens": self.max_tokens, "system": system, "messages": [{ "role": "user", "content": input }] }),
+                json!({ "model": self.id, "max_tokens": max_tokens, "system": system, "messages": [{ "role": "user", "content": input }] }),
             ),
             other => bail!(
                 "ai2 does not speak the {other} API yet (openai-completions or anthropic-messages)"
             ),
         };
-        let mut request = self.agent.post(&url);
+        if let Some(temperature) = asking.temperature {
+            body["temperature"] = json!(temperature);
+        }
+        let agent = ureq::Agent::config_builder()
+            .timeout_global(Some(asking.timeout))
+            .http_status_as_error(false)
+            .build()
+            .new_agent();
+        let mut request = agent.post(&url);
         if let Some(key) = &key {
             request = if p.api == "anthropic-messages" && !p.auth_header {
                 request
@@ -211,6 +226,20 @@ mod tests {
             parse("<think>{\"score\": 1}</think> Here it is: {\"score\": 80} done").unwrap();
         assert_eq!(answer.score, 80.0);
         assert!(parse::<Answer>("no json here").is_err());
+    }
+
+    #[test]
+    fn a_providers_file_names_the_default_model_or_the_one_asked_for() {
+        let file = std::env::temp_dir().join(format!("ai2-models-{}.json", std::process::id()));
+        std::fs::write(
+            &file,
+            r#"{"$schema":"x","providers":{"a":{"api":"openai-completions","baseUrl":"http://a","models":[{"id":"one"},{"id":"two","default":true}]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(Model::load(&file, None).unwrap().name(), "a/two");
+        assert_eq!(Model::load(&file, Some("a/one")).unwrap().name(), "a/one");
+        assert!(Model::load(&file, Some("b/one")).is_err());
+        std::fs::remove_file(file).unwrap();
     }
 
     #[test]

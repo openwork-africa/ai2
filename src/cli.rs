@@ -4,7 +4,9 @@ use crate::step::{Run, Step};
 use crate::steps::{self, Msr};
 use crate::{model, scan, sources};
 use anyhow::{Context, Result};
-use clap::{CommandFactory, FromArgMatches, Parser};
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
+use harness::cli::{print, Context as HarnessContext, HarnessCommand};
+use harness::Registry;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -55,6 +57,14 @@ pub fn builtin() -> Vec<Box<dyn Step>> {
 }
 
 pub fn run(steps: Vec<Box<dyn Step>>) -> Result<()> {
+    run_with(steps, Vec::new(), |_, _| Ok(()))
+}
+
+pub fn run_with(
+    steps: Vec<Box<dyn Step>>,
+    commands: Vec<clap::Command>,
+    other: impl FnOnce(&str, &ArgMatches) -> Result<()>,
+) -> Result<()> {
     let names: Vec<_> = steps.iter().map(|s| s.scale().name).collect();
     let bin = std::env::args()
         .next()
@@ -70,7 +80,13 @@ pub fn run(steps: Vec<Box<dyn Step>>) -> Result<()> {
             .about(format!("Rates a coding agent's run: {}", names.join(", "))),
         |c, arg| c.arg(arg),
     );
-    let args = command.get_matches();
+    let args = command
+        .subcommands(commands)
+        .args_conflicts_with_subcommands(true)
+        .get_matches();
+    if let Some((name, matches)) = args.subcommand() {
+        return other(name, matches);
+    }
     let cli = Cli::from_arg_matches(&args)?;
     let folder = cli
         .run_path
@@ -187,15 +203,54 @@ pub fn run(steps: Vec<Box<dyn Step>>) -> Result<()> {
 
 pub fn write(review: &Review, out: &Path, dashboard: bool) -> Result<PathBuf> {
     std::fs::create_dir_all(out).with_context(|| format!("making {}", out.display()))?;
-    std::fs::write(
-        out.join("review.json"),
-        serde_json::to_string_pretty(review)?,
-    )?;
+    std::fs::write(out.join("review.json"), serde_json::to_vec_pretty(review)?)?;
     if !dashboard {
         return Ok(out.join("review.json"));
     }
     std::fs::write(out.join("report.html"), report::html(review))?;
     Ok(out.join("report.html"))
+}
+
+pub fn harness_command() -> clap::Command {
+    HarnessCommand::augment_subcommands(
+        clap::Command::new("harness")
+            .about(
+                "Installs coding agents, signs in to them and prints their headless command lines",
+            )
+            .subcommand_required(true),
+    )
+}
+
+pub fn run_harness(registry: Registry, state: PathBuf, matches: &ArgMatches) -> Result<()> {
+    let command = HarnessCommand::from_arg_matches(matches)?;
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    match (HarnessContext {
+        registry,
+        home,
+        state,
+    })
+    .run(command)
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => std::process::exit(1),
+        Err(error) => {
+            print(&serde_json::json!({ "error": error.to_string() }));
+            std::process::exit(1)
+        }
+    }
+}
+
+pub fn state_dir(name: &str) -> PathBuf {
+    std::env::var_os(format!("{}_HOME", name.to_uppercase()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join(format!(".{name}"))
+        })
 }
 
 pub fn progress(what: &str) {

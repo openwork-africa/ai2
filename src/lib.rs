@@ -8,5 +8,5 @@ pub mod sources;
 pub mod step;
 pub mod steps;
 
-pub use cli::{builtin, run};
+pub use cli::{builtin, run, run_with};
 pub use step::{Item, Rated, Run, Step};

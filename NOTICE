@@ -1,0 +1,14 @@
+ai2
+Copyright 2026 Openwork Africa
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+This product includes skills under the MIT License, each with its LICENSE file in its folder:
+
+skills/security-audit
+  From https://github.com/cloudflare/security-audit-skill
+  Copyright (c) 2025-2026 Cloudflare, Inc.
+
+skills/dependency-audit, skills/owasp-audit, skills/patch-sweep
+  From https://github.com/briiirussell/cybersecurity-skills
+  Copyright (c) 2026 Bri Russell

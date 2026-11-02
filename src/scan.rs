@@ -91,7 +91,7 @@ fn languages(folder: &Path) -> Vec<Language> {
             share: percent(language.code as f64, total as f64),
         })
         .collect();
-    languages.sort_by(|a, b| b.lines.cmp(&a.lines));
+    languages.sort_by_key(|a| std::cmp::Reverse(a.lines));
     languages
 }
 

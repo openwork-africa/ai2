@@ -45,6 +45,19 @@ Without `--json`, ai2 prints the path of `report.html`, or of `review.json` with
 
 [syft](https://github.com/anchore/syft) on `PATH` lists the libraries; without it the model reads the manifests.
 
+## Harnesses
+
+`ai2 harness` installs coding agents into `~/.local/bin`, signs in to them and prints the headless command line for a task, each as JSON:
+
+| Command | |
+| --- | --- |
+| `ai2 harness list` | every harness, whether it is installed and signed in, and its models |
+| `ai2 harness install <id>` | installs it |
+| `ai2 harness sign-in <id>` | starts its sign-in and prints what to do |
+| `ai2 harness command <id> [--model m] [--personality p] [--prompt text] [--folder dir]` | the line that runs a task with it headless |
+
+State is kept in `$AI2_HOME`, else `~/.ai2`. The same code is the `harness` crate in `crates/harness`, for use as a library (`harness = { git = "https://github.com/openwork-africa/ai2" }`); `harness::Registry` takes more harnesses.
+
 ## Providers file
 
 The same shape as dm's `providers.json` and pi's `models.json`. `api` is `openai-completions` or `anthropic-messages`. A value that starts with `!` is run in a shell and its output used; one that starts with `$` is read from the environment.
@@ -136,6 +149,8 @@ A step is given the `Run`: the folder, objective, changed files, providers file 
 
 `args` adds the step's own flags to the command line. Steps run in the order given.
 
+`ai2::run_with(steps, commands, handler)` also takes subcommands (`clap::Command`s); `handler` is given the name and matches of the one that was used. `ai2::cli::harness_command()` and `ai2::cli::run_harness` are the `harness` subcommand.
+
 ## License
 
-MIT. The skills in `skills/` keep their own licenses.
+Apache-2.0 (`LICENSE`). The skills in `skills/` are under the MIT License, each with its own `LICENSE`; `NOTICE` lists them and their sources.
