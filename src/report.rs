@@ -20,7 +20,7 @@ pub struct Review {
     pub notes: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Card {
     pub key: &'static str,
     pub name: &'static str,
@@ -200,7 +200,7 @@ fn tone(score: f64, riskier: bool) -> &'static str {
     }
 }
 
-pub fn esc(text: &str) -> String {
+fn esc(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

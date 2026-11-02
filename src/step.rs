@@ -5,6 +5,7 @@ use crate::steps::{Exploit, Factor, Rating, Scale};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Item {
@@ -14,19 +15,33 @@ pub struct Item {
     pub factors: Vec<Factor>,
 }
 
-pub struct Run {
+pub struct Context {
     pub folder: PathBuf,
     pub objective: String,
     pub changed: Vec<String>,
-    pub providers: Option<PathBuf>,
-    pub model_name: Option<String>,
-    pub model: Option<Model>,
-    pub harness: String,
     pub days: u64,
     pub spec: Spec,
+    pub model: Option<Model>,
+    pub args: clap::ArgMatches,
+    pub deadline: Option<Instant>,
+}
+
+impl Context {
+    pub fn arg<T: Clone + Send + Sync + 'static>(&self, step: &str, name: &str) -> Option<&T> {
+        self.args.get_one::<T>(&format!("{step}.{name}"))
+    }
+    pub fn remaining(&self) -> Option<Duration> {
+        self.deadline
+            .map(|d| d.saturating_duration_since(Instant::now()))
+    }
+}
+
+pub type Run = Context;
+
+#[derive(Default)]
+pub struct Found {
     pub exploits: Vec<Exploit>,
     pub findings: Vec<Finding>,
-    pub args: clap::ArgMatches,
 }
 
 #[derive(Default)]
@@ -40,9 +55,17 @@ pub struct Rated {
 }
 
 pub trait Step {
+    fn id(&self) -> &'static str;
     fn scale(&self) -> &'static Scale;
     fn args(&self) -> Vec<clap::Arg> {
         Vec::new()
     }
-    fn rate(&self, run: &Run) -> Result<Rated>;
+    fn after(&self) -> &[&'static str] {
+        &[]
+    }
+    fn provision(&mut self, _ctx: &Context) -> Result<()> {
+        Ok(())
+    }
+    fn rate(&self, ctx: &Context, found: &Found) -> Result<Rated>;
+    fn cleanup(&mut self) {}
 }

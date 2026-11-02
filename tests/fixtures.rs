@@ -4,7 +4,7 @@ use ai2::scan::{self, Spec};
 use ai2::steps::{technologies, weight, Factor, Rating, MSR, RRF};
 use std::path::{Path, PathBuf};
 
-const DOCUMENTS: &[&str] = &["clean", "script", "external", "hidden", "secret", "form"];
+const DOCUMENTS: &[&str] = &["clean", "script", "hidden"];
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

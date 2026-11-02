@@ -6,7 +6,7 @@ pub mod setup;
 pub mod state;
 pub mod terminal;
 
-pub use line::{run_line, sh_quote, takes_personality, task_line};
+pub use line::{run_line, sh_quote, task_line};
 pub use setup::{Agent, Headless, Installed, ModelChoice, Personality, Registry, Setup};
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::job::{self, Event};
-use crate::line::task_line;
+use crate::line::{takes_personality, task_line};
 use crate::setup::{Registry, Setup};
 use crate::state::{is_connected, on_path, workspace_path, State, States};
 
@@ -79,6 +79,9 @@ impl Context {
             "canSignIn": setup.sign_in.is_some(),
             "signInHint": setup.sign_in_hint,
             "models": setup.models(),
+            "use": setup.use_text,
+            "takesPersonality": takes_personality(setup),
+            "headless": setup.headless().is_some(),
             "installed": state.installed,
             "signedIn": state.signed_in,
             "connected": is_connected(setup, state),

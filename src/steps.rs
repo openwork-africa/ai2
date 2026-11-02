@@ -2,7 +2,7 @@ use crate::model::Model;
 use crate::prompts;
 use crate::scan::{percent, Spec};
 use crate::sources::{self, Advisory};
-use crate::step::{Rated, Run, Step};
+use crate::step::{Context, Found, Rated, Step};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -107,14 +107,17 @@ struct MsrAnswer {
 pub struct Msr;
 
 impl Step for Msr {
+    fn id(&self) -> &'static str {
+        "rating.msr"
+    }
     fn scale(&self) -> &'static Scale {
         &MSR
     }
 
-    fn rate(&self, run: &Run) -> Result<Rated> {
+    fn rate(&self, ctx: &Context, _found: &Found) -> Result<Rated> {
         let mut notes = Vec::new();
-        let advisories = sources::recent(&run.spec, run.days, &mut notes);
-        let (rating, exploits) = msr(run.model.as_ref(), &run.spec, &advisories, run.days)?;
+        let advisories = sources::recent(&ctx.spec, ctx.days, &mut notes);
+        let (rating, exploits) = msr(ctx.model.as_ref(), &ctx.spec, &advisories, ctx.days)?;
         Ok(Rated {
             rating: Some(rating),
             exploits,
@@ -150,8 +153,9 @@ pub fn msr(
     let model = model.ok_or_else(|| {
         anyhow::anyhow!("a model is needed to match the advisories to the technology")
     })?;
+    let capped = capped_spec(spec, advisories);
     let input = serde_json::to_string_pretty(
-        &serde_json::json!({ "technology": spec, "advisories": advisories, "days": days }),
+        &serde_json::json!({ "technology": capped, "advisories": advisories, "days": days }),
     )?;
     let answer: MsrAnswer = model.ask(prompts::MSR, &input)?;
     Ok((MSR.rate(&answer.factors), answer.exploits))
@@ -172,6 +176,23 @@ pub fn weight(severity: &str) -> f64 {
         "low" => 1.0,
         _ => 0.0,
     }
+}
+
+pub fn capped_spec(spec: &Spec, advisories: &[Advisory]) -> Spec {
+    let named: Vec<String> = advisories
+        .iter()
+        .map(|a| a.technology.to_lowercase())
+        .collect();
+    let mut capped = spec.clone();
+    capped.libraries.retain(|lib| {
+        let name = lib.name.to_lowercase();
+        !name.is_empty()
+            && named.iter().any(|tech| {
+                tech.split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+                    .any(|token| token == name)
+            })
+    });
+    capped
 }
 
 pub fn technologies(spec: &Spec, risks: &[(String, f64)]) -> Vec<Technology> {
@@ -260,6 +281,53 @@ mod tests {
         let (rating, exploits) = msr(None, &Spec::default(), &[], 7).unwrap();
         assert_eq!(rating.score, 100.0);
         assert!(exploits.is_empty());
+    }
+
+    #[test]
+    fn msr_input_for_a_large_spec_lists_only_advised_libraries() {
+        let libraries = (0..3000)
+            .map(|i| crate::scan::Library {
+                name: format!("lib-{i}"),
+                version: "1".into(),
+                ecosystem: "npm".into(),
+            })
+            .collect::<Vec<_>>();
+        let spec = Spec {
+            os: "Linux".into(),
+            languages: vec![crate::scan::Language {
+                name: "Rust".into(),
+                lines: 1,
+                share: 100.0,
+            }],
+            libraries,
+        };
+        let advisories = vec![
+            Advisory {
+                source: "x".into(),
+                id: "1".into(),
+                technology: "lib-2 1.0".into(),
+                published: "2026-01-01".into(),
+                summary: String::new(),
+            },
+            Advisory {
+                source: "x".into(),
+                id: "2".into(),
+                technology: "lib-2999".into(),
+                published: "2026-01-01".into(),
+                summary: String::new(),
+            },
+        ];
+        let capped = capped_spec(&spec, &advisories);
+        assert_eq!(
+            capped
+                .libraries
+                .iter()
+                .map(|l| l.name.as_str())
+                .collect::<Vec<_>>(),
+            ["lib-2", "lib-2999"]
+        );
+        assert_eq!(capped.languages.len(), 1);
+        assert_eq!(capped.os, "Linux");
     }
 
     #[test]

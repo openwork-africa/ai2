@@ -12,6 +12,7 @@ const SKIPPED: &[&str] = &[
     "build",
     "vendor",
     ".venv",
+    ".ai2",
 ];
 const MANIFESTS: &[&str] = &[
     "package.json",
@@ -59,6 +60,15 @@ pub struct Library {
 }
 
 pub fn scan(folder: &Path, model: Option<&Model>, notes: &mut Vec<String>) -> Spec {
+    scan_skipping(folder, model, notes, None)
+}
+
+pub fn scan_skipping(
+    folder: &Path,
+    model: Option<&Model>,
+    notes: &mut Vec<String>,
+    skip: Option<&Path>,
+) -> Spec {
     let libraries = syft(folder).unwrap_or_else(|| match model {
         Some(model) => from_manifests(folder, model).unwrap_or_else(|error| {
             notes.push(format!(
@@ -73,14 +83,24 @@ pub fn scan(folder: &Path, model: Option<&Model>, notes: &mut Vec<String>) -> Sp
     });
     Spec {
         os: os_info::get().to_string(),
-        languages: languages(folder),
+        languages: languages_skipping(folder, skip),
         libraries,
     }
 }
 
-fn languages(folder: &Path) -> Vec<Language> {
+fn languages_skipping(folder: &Path, skip: Option<&Path>) -> Vec<Language> {
+    let mut ignored: Vec<&str> = SKIPPED.to_vec();
+    let extra;
+    if let Some(skip) = skip {
+        if let Ok(rel) = skip.strip_prefix(folder) {
+            if let Some(first) = rel.components().next() {
+                extra = first.as_os_str().to_string_lossy().to_string();
+                ignored.push(&extra);
+            }
+        }
+    }
     let mut found = tokei::Languages::new();
-    found.get_statistics(&[folder], SKIPPED, &tokei::Config::default());
+    found.get_statistics(&[folder], &ignored, &tokei::Config::default());
     let total: usize = found.values().map(|language| language.code).sum();
     let mut languages: Vec<Language> = found
         .iter()
@@ -224,7 +244,14 @@ mod tests {
         std::fs::write(dir.join("app/index.js"), "console.log(1);\n").unwrap();
         std::fs::write(dir.join("app/package.json"), "{}").unwrap();
         std::fs::write(dir.join("app/node_modules/x/package.json"), "{}").unwrap();
-        let languages = languages(&dir);
+        std::fs::create_dir_all(dir.join(".ai2")).unwrap();
+        std::fs::write(
+            dir.join(".ai2/report.html"),
+            "<html><body>hi</body></html>\n",
+        )
+        .unwrap();
+        let languages = languages_skipping(&dir, None);
+        assert!(languages.iter().all(|l| l.name != "HTML"));
         assert_eq!(languages[0].name, "Rust");
         assert_eq!(languages.iter().map(|l| l.share).sum::<f64>(), 100.0);
         let mut manifests = Vec::new();

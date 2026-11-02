@@ -108,11 +108,17 @@ impl Model {
         let answer = self.text(system, input, &ASKING)?;
         match parse(&answer) {
             Ok(value) => Ok(value),
-            Err(_) => parse(&self.text(
-                system,
-                &format!("{input}\n\nAnswer with the JSON object alone, nothing else."),
-                &ASKING,
-            )?),
+            Err(_) => {
+                let retry = Asking {
+                    max_tokens: Some(self.max_tokens.saturating_mul(2)),
+                    ..ASKING
+                };
+                parse(&self.text(
+                    system,
+                    &format!("{input}\n\nAnswer with the JSON object alone, nothing else."),
+                    &retry,
+                )?)
+            }
         }
     }
 

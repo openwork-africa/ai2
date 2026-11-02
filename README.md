@@ -35,9 +35,10 @@ ai2 --run-path=./site --objective "Add a pricing page" --changed index.html,styl
 | `--changed <a,b>` | the whole folder | the files the run changed, relative to the run path |
 | `--providers <file>` | `$AI2_PROVIDERS`, else `~/.ai2/providers.json` | the models file (below) |
 | `--model <provider/id>` | the file's default model | the model the steps ask |
-| `--harness auto\|muse\|pi\|none` | `auto` | the coding harness for the RRF: `auto` takes Muse Code when `muse usage` succeeds, else pi |
+| `--harness auto\|<id>\|none` | `auto` | the reviewer for the RRF: `auto` takes the first available registered reviewer, `none` skips it, or a registered reviewer id |
 | `--days <n>` | `7` | how many days back an exploit counts as recent |
-| `--out <dir>` | `<run-path>/.ai2` | where `review.json` and `report.html` go |
+| `--out <dir>` | `$AI2_HOME/reviews/<folder-hash>` (else `~/.ai2/reviews/<folder-hash>`) | where `review.json` and `report.html` go; outside the reviewed folder by default |
+| `--budget <minutes>` | `35` | the whole review's time budget; `review.json` is written after every step |
 | `--json` | | print `review.json` to stdout |
 | `--disable-dashboard` | | write `review.json` alone, without `report.html` |
 
@@ -95,18 +96,20 @@ For pi, ai2 passes the same file as its `models.json` in a temporary `PI_CODING_
 
 ## Building ai2 with extra steps
 
-ai2 is a library as well as a binary. A step implements `ai2::Step`; a crate that depends on ai2 builds one binary with the built-in steps and its own, with the same flags and outputs.
+ai2 is a library as well as a binary. A step implements `ai2::Step`; a crate that depends on ai2 builds one binary with the built-in steps and its own, with the same flags and outputs. This is the one git dependency a private build needs: `ai2::harness` re-exports the `harness` crate, so its tag always matches ai2's.
 
 ```toml
 [dependencies]
-ai2 = { git = "https://github.com/openwork-africa/ai2", tag = "v0.1.0" }
+ai2 = { git = "https://github.com/openwork-africa/ai2", tag = "v0.1.1" }
 anyhow = "1"
 clap = "4"
 ```
 
+A step has a namespaced snake_case `id` (like `rating.msr`); `run_with` refuses two steps with the same id. Its lifecycle is `provision` (read its own flags and resolve what it needs, or fail and its card is `missing` before anything runs), then `rate`, then `cleanup` (always called, even after an error). Flags from `args` are prefixed with the step id, so two steps cannot collide on a flag name; the long flag name is unchanged. `after` names the steps that must run first. `model.ask` takes a system prompt that must answer with one JSON object (it retries once with a larger token budget) and returns that object as any `Deserialize` type.
+
 ```rust
 use ai2::steps::{Scale, Scored};
-use ai2::{Rated, Run, Step};
+use ai2::{Context, Found, Rated, Step};
 use std::collections::BTreeMap;
 
 const MINE: Scale = Scale {
@@ -118,38 +121,45 @@ const MINE: Scale = Scale {
     factors: &[("first", "First"), ("second", "Second"), ("third", "Third")],
 };
 
-struct Mine;
+struct Mine { flag: Option<String> }
 
 impl Step for Mine {
-    fn scale(&self) -> &'static Scale {
-        &MINE
-    }
-
+    fn id(&self) -> &'static str { "rating.mine" }
+    fn scale(&self) -> &'static Scale { &MINE }
     fn args(&self) -> Vec<clap::Arg> {
-        vec![clap::Arg::new("mine").long("mine")]
+        vec![clap::Arg::new("mine").long("mine").value_name("VALUE")]
     }
-
-    fn rate(&self, run: &Run) -> anyhow::Result<Rated> {
-        let Some(_mine) = run.args.get_one::<String>("mine") else {
-            return Ok(Rated::default());
-        };
+    fn provision(&mut self, ctx: &Context) -> anyhow::Result<()> {
+        self.flag = ctx.arg::<String>(self.id(), "mine").cloned();
+        Ok(())
+    }
+    fn rate(&self, _ctx: &Context, _found: &Found) -> anyhow::Result<Rated> {
+        if self.flag.is_none() { return Ok(Rated::default()); }
         let scored: BTreeMap<String, Scored> = BTreeMap::new();
         Ok(Rated { rating: Some(MINE.rate(&scored)), ..Rated::default() })
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> std::process::ExitCode {
     let mut steps = ai2::builtin();
-    steps.push(Box::new(Mine));
+    steps.push(Box::new(Mine { flag: None }));
     ai2::run(steps)
 }
 ```
 
-A step is given the `Run`: the folder, objective, changed files, providers file and model (`run.model.ask` returns the model's JSON answer as any `Deserialize` type), the harness choice, the spec, the exploits and findings of the steps before it, and the parsed flags (`run.args`). It returns a `Rated`: the rating, or none with a note saying why, and any exploits, findings and items it adds. A step that returns an error shows its card with the error.
+`rate` is given the `Context` (folder, objective, changed files, days, spec, model and the parsed flags) and the `Found` accumulator (the exploits and findings of the steps before it, in `after` order). It returns a `Rated`: the rating, or none with a note saying why, and any exploits, findings and items it adds. A step that returns an error shows its card with the error.
 
-`args` adds the step's own flags to the command line. Steps run in the order given.
+### Adding a harness
 
-`ai2::run_with(steps, commands, handler)` also takes subcommands (`clap::Command`s); `handler` is given the name and matches of the one that was used. `ai2::cli::harness_command()` and `ai2::cli::run_harness` are the `harness` subcommand.
+`ai2::harness::Registry` takes more harnesses: `Registry::put(setup, before)` inserts a `Setup` (or replaces the one with the same id), `on_installed(hook)` runs a hook after an install, and `list::agent`/`headless`/`flag`/`pi` build the pieces of a `Setup`. Pass that registry to `HarnessSubcommand::new(registry, state_dir)`. To make the RRF use a reviewer, construct it with one: `ai2::steps` steps are built by `ai2::builtin_with(vec![ai2::harness::muse_reviewer(), ai2::harness::pi_reviewer()])`, and a private build can add its own `Reviewer { id, label, available, command }`; `--harness <id>` then accepts it.
+
+### Adding a subcommand
+
+Implement `ai2::Subcommand` (`command()` returns its `clap::Command`, `run(matches)` returns `Ok(true)` for success) and pass it to `run_with`. ai2 prints one `{"error": ...}` JSON line and returns exit code 1 when a subcommand fails or returns `Ok(false)`; library code never calls `process::exit`.
+
+### Building your own binary
+
+Pass your own identity: `ai2::run_with(steps, subcommands, ai2::Build { name: "mine", version: env!("CARGO_PKG_VERSION") })`. The build name and version drive `--version`, `review.json`'s `version`, the stderr prefix, the default output folder, the default providers path (`~/.<name>/providers.json`) and the providers env var (`<NAME>_PROVIDERS`). Ship releases as `<name>-<target>.tar.gz` plus a `SHA256SUMS` file in the same release, with the binary, `LICENSE`, `NOTICE` and `README.md` in the tarball.
 
 ## License
 

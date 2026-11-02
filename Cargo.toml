@@ -1,6 +1,6 @@
 [package]
 name = "ai2"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Rates a coding agent's run: Modern Security Rating and Run Risk Factor"
 license = "Apache-2.0"
@@ -31,7 +31,7 @@ members = [".", "crates/harness"]
 
 [workspace.package]
 edition = "2021"
-version = "0.1.0"
+version = "0.1.1"
 
 [workspace.dependencies]
 anyhow = "1"

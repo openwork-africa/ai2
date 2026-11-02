@@ -1,13 +1,12 @@
-fn main() -> anyhow::Result<()> {
+use std::process::ExitCode;
+fn main() -> ExitCode {
+    let build = ai2::Build::ai2();
     ai2::run_with(
         ai2::builtin(),
-        vec![ai2::cli::harness_command()],
-        |_, matches| {
-            ai2::cli::run_harness(
-                harness::Registry::public(),
-                ai2::cli::state_dir("ai2"),
-                matches,
-            )
-        },
+        vec![Box::new(ai2::HarnessSubcommand::new(
+            harness::Registry::public(),
+            ai2::cli::state_dir("ai2"),
+        ))],
+        build,
     )
 }
