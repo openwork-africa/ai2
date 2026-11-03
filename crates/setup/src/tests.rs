@@ -1,3 +1,5 @@
+use crate::admin::fake::FakeAdmin;
+use crate::admin::HOST_SANDBOX;
 use crate::files::{self, SERVICE_BIN, UNIT_PATH};
 use crate::host::Host;
 use crate::runner::fake::Fake;
@@ -20,6 +22,7 @@ fn mac_options() -> Options {
         state: "/Users/ada/.ai2/vault".into(),
         label: files::LABEL.into(),
         keychain: None,
+        admin: "/Users/ada/.ai2/vault/admin.sock".into(),
     }
 }
 
@@ -30,6 +33,7 @@ fn linux_options() -> Options {
         state: "/var/lib/ai2-vault".into(),
         label: files::LABEL.into(),
         keychain: None,
+        admin: "/run/ai2-vault/admin.sock".into(),
     }
 }
 
@@ -41,12 +45,33 @@ fn setup(
     present: bool,
     check_only: bool,
 ) -> (bool, Value) {
+    setup_with_admin(
+        host,
+        options,
+        fake,
+        master,
+        &FakeAdmin::with(&[HOST_SANDBOX]),
+        present,
+        check_only,
+    )
+}
+
+fn setup_with_admin(
+    host: &Host,
+    options: &Options,
+    fake: &Fake,
+    master: &dyn MasterKey,
+    admin: &FakeAdmin,
+    present: bool,
+    check_only: bool,
+) -> (bool, Value) {
     let presence = move || -> Result<bool> { Ok(present) };
     let ctx = Context {
         host,
         options,
         runner: fake,
         master,
+        admin,
         presence: &presence,
         check_only,
     };
@@ -618,6 +643,182 @@ fn the_host_is_described_for_the_page() {
         Host::linux(Some(249)).to_json(),
         serde_json::json!({ "os": "linux", "version": null, "arm64": null, "systemd": 249, "user": "ada", "supports_containers": false })
     );
+}
+
+fn fresh_mac(admin: &FakeAdmin) -> (Fake, bool, Value) {
+    let fake = Fake::default();
+    container_missing_then_brewed(&fake);
+    fake.answer(WHICH_BREW, Ran::ok("/opt/homebrew/bin/brew\n"));
+    let master = MemoryKey::default();
+    let (ok, report) = setup_with_admin(
+        &Host::mac(26, true),
+        &mac_options(),
+        &fake,
+        &master,
+        admin,
+        true,
+        false,
+    );
+    (fake, ok, report)
+}
+
+#[test]
+fn the_daemon_step_ends_by_adding_the_host_sandbox_alone_with_touch_id() {
+    let admin = FakeAdmin::default();
+    let (fake, ok, report) = fresh_mac(&admin);
+    assert!(ok, "{report}");
+    assert_eq!(*admin.added.borrow(), [(HOST_SANDBOX.to_string(), None)]);
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "created");
+    assert!(report["steps"]["daemon"].get("warnings").is_none());
+    let said = fake.said.borrow();
+    let asked = said
+        .iter()
+        .find(|line| line.contains("sandbox host"))
+        .unwrap();
+    assert!(asked.contains("Touch ID") && asked.contains("this one change"));
+    assert!(fake.asked.borrow().is_empty());
+    assert_eq!(
+        fake.steps.borrow().last().unwrap(),
+        "finished daemon \"ready\""
+    );
+}
+
+#[test]
+fn a_host_sandbox_already_there_is_left_alone() {
+    let admin = FakeAdmin::with(&["box", HOST_SANDBOX]);
+    let (_, ok, report) = fresh_mac(&admin);
+    assert!(ok);
+    assert!(admin.added.borrow().is_empty());
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "present");
+}
+
+#[test]
+fn an_unreachable_admin_api_skips_the_host_sandbox_with_a_warning() {
+    let admin = FakeAdmin::unreachable();
+    let (fake, ok, report) = fresh_mac(&admin);
+    assert!(ok, "{report}");
+    assert_eq!(status(&report, "daemon"), "ready");
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "skipped");
+    let warning = report["steps"]["daemon"]["warnings"][0].as_str().unwrap();
+    assert!(
+        warning.contains("not reachable") && warning.contains("ai2 vault sandbox add --name host")
+    );
+    assert!(admin.added.borrow().is_empty());
+    assert!(!fake
+        .said
+        .borrow()
+        .iter()
+        .any(|line| line.contains("Touch ID")));
+}
+
+#[test]
+fn a_refused_host_sandbox_is_a_warning_not_a_failure() {
+    let admin = FakeAdmin::default().answering(
+        401,
+        serde_json::json!({ "error": "presence_required", "message": "Add the vault sandbox host: needs you present" }),
+    );
+    let (_, ok, report) = fresh_mac(&admin);
+    assert!(ok);
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "skipped");
+    assert!(report["steps"]["daemon"]["warnings"][0]
+        .as_str()
+        .unwrap()
+        .contains("401: Add the vault sandbox host: needs you present"));
+}
+
+#[test]
+fn on_linux_the_host_sandbox_asks_for_the_passphrase_once_more() {
+    let fake = Fake::default();
+    linux_fresh(&fake);
+    fake.type_in("a long passphrase");
+    let admin = FakeAdmin::default();
+    let master = MemoryKey::default();
+    let (ok, report) = setup_with_admin(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        &master,
+        &admin,
+        false,
+        false,
+    );
+    assert!(ok, "{report}");
+    assert_eq!(
+        *admin.added.borrow(),
+        [(
+            HOST_SANDBOX.to_string(),
+            Some("a long passphrase".to_string())
+        )]
+    );
+    assert_eq!(
+        fake.asked.borrow().last().unwrap(),
+        crate::steps::HOST_PROMPT
+    );
+    assert!(crate::steps::HOST_PROMPT.contains("nothing else"));
+}
+
+#[test]
+fn a_check_never_reaches_for_the_host_sandbox() {
+    let fake = Fake::default();
+    let admin = FakeAdmin::unreachable();
+    let master = MemoryKey::default();
+    master.create().unwrap();
+    let (_, report) = setup_with_admin(
+        &Host::mac(26, true),
+        &mac_options(),
+        &fake,
+        &master,
+        &admin,
+        true,
+        true,
+    );
+    assert!(report["steps"]["daemon"].get("host_sandbox").is_none());
+    assert!(report["steps"]["daemon"].get("warnings").is_none());
+    assert!(admin.added.borrow().is_empty());
+}
+
+#[test]
+fn the_admin_socket_client_lists_and_adds_sandboxes() {
+    use crate::admin::{Admin, Socket};
+    use std::io::{Read, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("admin.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut seen = Vec::new();
+        for reply in [
+            r#"{"sandboxes":[{"name":"box"},{"name":"host"}]}"#,
+            r#"{"sandbox":{"name":"host"}}"#,
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap();
+            seen.push(String::from_utf8_lossy(&buf[..n]).into_owned());
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{reply}",
+                reply.len()
+            )
+            .unwrap();
+        }
+        seen
+    });
+    let socket = Socket::new(&path);
+    assert_eq!(socket.sandboxes().unwrap(), ["box", "host"]);
+    let (status, value) = socket.add_sandbox("host", Some("pass")).unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(value["sandbox"]["name"], "host");
+    let seen = server.join().unwrap();
+    assert!(seen[0].starts_with("GET /sandboxes HTTP/1.1\r\n"));
+    assert!(seen[1].starts_with("POST /sandboxes HTTP/1.1\r\n"));
+    assert!(seen[1].contains("X-Vault-Passphrase: pass\r\n"));
+    assert!(seen[1].ends_with(r#"{"name":"host"}"#));
+    assert!(socket.add_sandbox("host", Some("a\r\nX: y")).is_err());
+    let gone = Socket {
+        path: dir.path().join("none.sock"),
+        wait: std::time::Duration::ZERO,
+    };
+    assert!(gone.sandboxes().is_err());
 }
 
 #[test]

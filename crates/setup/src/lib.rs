@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod files;
 pub mod host;
 pub mod info;
@@ -7,6 +8,7 @@ pub mod steps;
 #[cfg(test)]
 mod tests;
 
+use admin::Admin;
 use anyhow::Result;
 use host::Host;
 pub use info::{inputs_info, steps_info, Field, InputInfo, StepInfo};
@@ -26,14 +28,17 @@ pub struct Options {
     pub state: PathBuf,
     pub label: String,
     pub keychain: Option<PathBuf>,
+    pub admin: PathBuf,
 }
 
 impl Options {
     pub fn new(bin: impl Into<PathBuf>, home: impl Into<PathBuf>) -> Self {
         let home = home.into();
+        let state = default_state(&home);
         Self {
             bin: bin.into(),
-            state: default_state(&home),
+            admin: admin::default_admin(&state),
+            state,
             home,
             label: files::label(std::env::var(files::LABEL_ENV).ok()),
             keychain: keys::keychain_file(std::env::var_os(keys::KEYCHAIN_ENV)),
@@ -116,6 +121,7 @@ pub struct Context<'a> {
     pub options: &'a Options,
     pub runner: &'a dyn Runner,
     pub master: &'a dyn MasterKey,
+    pub admin: &'a dyn Admin,
     pub presence: &'a dyn Fn() -> Result<bool>,
     pub check_only: bool,
 }
@@ -124,6 +130,10 @@ pub trait Step {
     fn id(&self) -> &'static str;
     fn check(&self, ctx: &Context) -> Result<State>;
     fn apply(&self, ctx: &Context, checked: &State) -> Result<State>;
+
+    fn settled(&self, _ctx: &Context, state: State) -> Result<State> {
+        Ok(state)
+    }
 }
 
 pub fn all() -> Vec<Box<dyn Step>> {
@@ -137,10 +147,15 @@ pub fn all() -> Vec<Box<dyn Step>> {
 
 fn settles(step: &dyn Step, ctx: &Context) -> Result<State> {
     let checked = step.check(ctx)?;
-    if ctx.check_only || matches!(checked.status, Status::Ready | Status::Unsupported) {
+    if ctx.check_only || checked.status == Status::Unsupported {
         return Ok(checked);
     }
-    step.apply(ctx, &checked)
+    let state = if checked.is_ready() {
+        checked
+    } else {
+        step.apply(ctx, &checked)?
+    };
+    step.settled(ctx, state)
 }
 
 pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
@@ -230,11 +245,13 @@ pub fn setup(opts: &Options, check_only: bool) -> Result<(bool, Value)> {
 pub fn setup_with(opts: &Options, check_only: bool, runner: &dyn Runner) -> Result<(bool, Value)> {
     let host = Host::detect(runner);
     let platform = keys::platform()?;
+    let admin = admin::Socket::new(&opts.admin);
     let ctx = Context {
         host: &host,
         options: opts,
         runner,
         master: platform.master.as_ref(),
+        admin: &admin,
         presence: &touch_id,
         check_only,
     };
