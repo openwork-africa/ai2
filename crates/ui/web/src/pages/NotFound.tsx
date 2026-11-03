@@ -13,7 +13,7 @@ export default function NotFound() {
             <Compass />
           </EmptyMedia>
           <EmptyTitle>Nothing lives at this address</EmptyTitle>
-          <EmptyDescription>No page of ai squared answers to it.</EmptyDescription>
+          <EmptyDescription>The page may have moved, or the link may have a typo.</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
           <Button variant="outline" asChild>

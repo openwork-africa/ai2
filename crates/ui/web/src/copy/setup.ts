@@ -130,7 +130,7 @@ export const doneText = {
   needed: (count: number) => `${count} ${count === 1 ? "step needs" : "steps need"} setting up. Nothing was touched.`,
   stopped: (title: string) => `Setup paused at ${title}`,
   address: "Your address",
-  bookmark: "Worth a bookmark; ai2 ui prints it again whenever you ask.",
+  bookmark: "Worth a bookmark, and ai2 can show it again whenever you like.",
   open: "Open ai squared",
   setItUp: "Set it up",
 };

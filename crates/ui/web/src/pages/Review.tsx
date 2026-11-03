@@ -27,7 +27,7 @@ export default function Review() {
 
   const current = loaded?.hash === hash ? loaded : null;
   const review = current?.review;
-  const back = { to: "/reviews", label: "Reviews" };
+  const back = { to: "/reviews", label: "Security" };
 
   if (current?.error) {
     const missing = current.error instanceof ApiError && (current.error.status === 404 || current.error.status === 400);

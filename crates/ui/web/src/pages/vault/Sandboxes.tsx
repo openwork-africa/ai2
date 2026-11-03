@@ -30,8 +30,7 @@ export default function Sandboxes() {
           </Button>
         }
       >
-        A sandbox is a place calls come from: its own socket, or a TCP address that answers only to its peers. A token
-        works in one sandbox and nowhere else.
+        Each sandbox is its own safe space, and a pass works only in the one it was made for.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
@@ -39,7 +38,7 @@ export default function Sandboxes() {
         <Rows count={2} />
       ) : sandboxes.length === 0 ? (
         <Nothing icon={Box} title="No sandboxes yet">
-          A sandbox is where a token is allowed to call from. Setup makes <Mono>host</Mono> for the apps on this machine; each container or agent run gets one of its own.
+          Each safe space an agent works in shows up here, and setup makes one for your apps.
         </Nothing>
       ) : (
         <Panel>

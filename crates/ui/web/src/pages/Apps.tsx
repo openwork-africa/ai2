@@ -156,7 +156,7 @@ export default function Apps() {
         title="Apps"
         description={
           apps && apps.length > 0
-            ? `Every app on this machine is one press from running. ${running} of ${apps.length} are up right now.`
+            ? `Every app on this machine is one press from running, and ${running} of ${apps.length} are up right now.`
             : "Every app on this machine is one press from running."
         }
         actions={
@@ -196,7 +196,7 @@ export default function Apps() {
               <LayoutGrid />
             </EmptyMedia>
             <EmptyTitle>The shelf is empty</EmptyTitle>
-            <EmptyDescription>Add your first app here, or ask your agent to add the one it just made.</EmptyDescription>
+            <EmptyDescription>Your apps show up here, whether you add them or your agent does.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 apps register --openapi /openapi.json …</Code>

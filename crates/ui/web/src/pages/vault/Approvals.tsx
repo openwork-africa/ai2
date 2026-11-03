@@ -40,7 +40,7 @@ export default function Approvals() {
   return (
     <div className="flex flex-col gap-4">
       <Toolbar>
-        Write calls on agent tokens wait here for your word, so a run that has gone astray can't change the world on its own. After two minutes with no answer, the vault says no for you.
+        Whatever an agent wants to change waits here for your word, and no word in two minutes means no.
       </Toolbar>
       {error && !approvals ? (
         <Failed message={error} />
@@ -48,7 +48,7 @@ export default function Approvals() {
         <Rows count={2} />
       ) : approvals.length === 0 ? (
         <Nothing icon={Inbox} title="Nobody is waiting">
-          An approval is a write call an agent wants to make with its token. When one asks to change something out in the world, the call queues here; this page looks every few seconds.
+          When an agent wants to change something out in the world, it waits here for your yes.
         </Nothing>
       ) : (
         <ItemGroup className="gap-3">

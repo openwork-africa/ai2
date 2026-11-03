@@ -10,7 +10,7 @@ export default function AppNew() {
       <PageHeader
         back={{ to: "/", label: "Apps" }}
         title="Add an app"
-        description="Anything that listens on a port and starts with one command is welcome here."
+        description="Any app that starts with one command can live here."
       />
       <AppForm
         onCancel={() => navigate("/")}

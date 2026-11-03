@@ -205,8 +205,8 @@ function ApiTab({ app, onChecked }: { app: App; onChecked: () => void }) {
       ) : (
         <Empty className="rounded-3xl border border-dashed py-12">
           <EmptyHeader>
-            <EmptyTitle>No OpenAPI document yet</EmptyTitle>
-            <EmptyDescription>{missing ?? "The OpenAPI document is what tells your agents what this app can do. Once the app is running, ai squared fetches it from the path in Settings."}</EmptyDescription>
+            <EmptyTitle>Nothing yet on what this app can do</EmptyTitle>
+            <EmptyDescription>{missing ?? "Once the app runs, ai squared learns what it can do, and so do your agents."}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>{app.openapi}</Code>

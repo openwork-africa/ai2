@@ -299,7 +299,7 @@ export default function Harnesses() {
     <Page className="max-w-6xl">
       <PageHeader
         title="Harnesses"
-        description="The coding agents and tools ai squared installs, signs in to and keeps in view while they run. Everything here happens on this machine, as you."
+        description="The coding agents ai squared sets up and watches, all on this machine."
         actions={harnesses && <Summary harnesses={harnesses} />}
       />
       {failed && !harnesses ? (
@@ -327,7 +327,7 @@ export default function Harnesses() {
               <Bot />
             </EmptyMedia>
             <EmptyTitle>This build knows no harnesses</EmptyTitle>
-            <EmptyDescription>A harness is a coding agent or tool ai squared can install, sign in to and run. This build was made without a registry of them, so there is nothing to list.</EmptyDescription>
+            <EmptyDescription>This copy of ai squared came with no list of coding agents, so there is nothing to show.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 harness list</Code>

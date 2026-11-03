@@ -35,7 +35,7 @@ export default function Vault() {
     <Page>
       <PageHeader
         title="Vault"
-        description="Keys, tokens, sandboxes, approvals and the audit log. An agent holds a token bound to its sandbox; the key itself stays in the vault, and this page never sees one."
+        description="Your keys stay locked away here, and agents get only a small pass to use them."
         actions={
           vault && (
             <Badge variant="outline" size="lg">
@@ -53,7 +53,7 @@ export default function Vault() {
               <KeyRound />
             </EmptyMedia>
             <EmptyTitle>The vault is down</EmptyTitle>
-            <EmptyDescription>The vault is the one process that ever holds a key. Setup installs it and starts it whenever you log in.</EmptyDescription>
+            <EmptyDescription>The vault keeps your keys safe, and setup starts it each time you log in.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 setup</Code>

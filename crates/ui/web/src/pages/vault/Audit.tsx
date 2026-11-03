@@ -35,8 +35,7 @@ export default function Audit() {
           </>
         }
       >
-        Every call through the vault, newest first: who asked, for what, and what the vault decided. Never the key, the
-        token or a body.
+        Every use of your keys, newest first, and never the keys themselves.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
@@ -44,7 +43,7 @@ export default function Audit() {
         <Rows count={5} />
       ) : entries.length === 0 ? (
         <Nothing icon={ScrollText} title="Nothing has passed through yet">
-          The audit log is every call through the vault. The first call on a token writes the first line here.
+          Every use of your keys is listed here, from the first one on.
         </Nothing>
       ) : (
         <Panel>

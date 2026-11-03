@@ -40,8 +40,7 @@ export default function Tokens({ mac }: { mac: boolean }) {
           </Button>
         }
       >
-        A token is a day pass: one sandbox, some keys, some methods and URLs, for a while. App tokens walk straight
-        through; every call on an agent token is checked against the job its run was started with.
+        Each token is a short pass that lets an app or agent use only what you chose.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
@@ -49,7 +48,7 @@ export default function Tokens({ mac }: { mac: boolean }) {
         <Rows />
       ) : tokens.length === 0 ? (
         <Nothing icon={Ticket} title="No tokens yet">
-          A token is what an app or an agent run carries instead of a key. The first one is created here; the vault keeps only its hash.
+          A token is a pass that lets an app or agent use your keys without holding them.
         </Nothing>
       ) : (
         <Panel>

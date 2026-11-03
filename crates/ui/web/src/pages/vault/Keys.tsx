@@ -52,7 +52,7 @@ export default function Keys() {
           </Button>
         }
       >
-        Each key is sealed in the vault and travels only to the URLs you approved. No agent ever sees one.
+        Each key is locked in the vault and goes only where you said it may.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
@@ -60,7 +60,7 @@ export default function Keys() {
         <Rows />
       ) : keys.length === 0 ? (
         <Nothing icon={KeyRound} title="The vault is empty">
-          A key is an API key the vault holds on your behalf, with the URLs it may visit. The first one goes in here; from then on, apps and agents call through the vault with a token.
+          Keys you add are kept safe by the vault and used for your apps and agents.
         </Nothing>
       ) : (
         <Panel>

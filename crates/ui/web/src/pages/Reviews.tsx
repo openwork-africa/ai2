@@ -39,7 +39,7 @@ function NoReviews() {
           <ShieldCheck />
         </EmptyMedia>
         <EmptyTitle>Nothing has been reviewed yet</EmptyTitle>
-        <EmptyDescription>After an agent works on something, run the command below to check it's safe.</EmptyDescription>
+        <EmptyDescription>Each agent run shows up here once it has been checked, using the command below.</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Code>ai2 --objective "Add a pricing page"</Code>
@@ -72,8 +72,8 @@ export default function Reviews() {
   return (
     <Page>
       <PageHeader
-        title="Reviews"
-        description="Every agent run ai squared has reviewed on this machine, one per folder: the Modern Security Rating, for fresh exploits against the stack, and the Run Risk Factor, from a reviewer reading what the run changed."
+        title="Security"
+        description="Every agent run checked on this machine, with a safety score for each."
         actions={list?.can_start && <StartReview onDone={load} />}
       />
       {error && !list && (
@@ -82,7 +82,7 @@ export default function Reviews() {
             <EmptyMedia variant="icon">
               <TriangleAlert />
             </EmptyMedia>
-            <EmptyTitle>The reviews wouldn't load</EmptyTitle>
+            <EmptyTitle>The security checks wouldn't load</EmptyTitle>
             <EmptyDescription>{error}</EmptyDescription>
           </EmptyHeader>
         </Empty>
