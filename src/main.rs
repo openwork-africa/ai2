@@ -10,6 +10,7 @@ fn main() -> ExitCode {
             )),
             Box::new(ai2::VaultSubcommand::new("ai2")),
             Box::new(ai2::SetupSubcommand { name: "ai2" }),
+            Box::new(ai2::DoctorSubcommand { build }),
         ],
         build,
     )
