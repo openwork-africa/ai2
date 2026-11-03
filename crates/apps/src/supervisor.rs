@@ -244,7 +244,9 @@ impl Supervisor {
         .abort_handle()
     }
 
-    fn spawn(&self, app: &App, generation: u64) -> Result<Live> {
+    /// Runs the app and records it as live before its exit can be seen, so an app that dies at
+    /// once is never left marked as started here.
+    fn spawn(&self, app: &App, generation: u64) -> Result<watch::Receiver<Option<Exit>>> {
         let piped = self.settings().supervise && app.restart != Restart::Never;
         let mut file = self.store().mark_start(&app.id)?;
         let mut command = tokio::process::Command::new("/bin/sh");
@@ -304,6 +306,17 @@ impl Supervisor {
             tasks.push(self.follow(&app.id));
         }
         let (tx, rx) = watch::channel(None);
+        if let Some(track) = self.tracks().get_mut(&app.id) {
+            track.live = Some(Live {
+                pid,
+                since,
+                started_at,
+                boot,
+                adopted: false,
+                exited: rx.clone(),
+                tasks,
+            });
+        }
         let me = self.clone();
         let id = app.id.clone();
         tokio::spawn(async move {
@@ -326,15 +339,7 @@ impl Supervisor {
                 me.respawn(id, generation, delay).await;
             }
         });
-        Ok(Live {
-            pid,
-            since,
-            started_at,
-            boot,
-            adopted: false,
-            exited: rx,
-            tasks,
-        })
+        Ok(rx)
     }
 
     fn ended(&self, id: &str, generation: u64, exit: Exit, piped: bool) -> Option<Duration> {
@@ -409,10 +414,7 @@ impl Supervisor {
             return;
         };
         match self.spawn(&app, next) {
-            Ok(live) => {
-                if let Some(track) = self.tracks().get_mut(&id) {
-                    track.live = Some(live);
-                }
+            Ok(_) => {
                 self.emit(&id, true);
             }
             Err(error) => {
@@ -464,8 +466,8 @@ impl Supervisor {
             track.recent.clear();
             track.generation
         };
-        let live = match self.spawn(&app, generation) {
-            Ok(live) => live,
+        let mut exited = match self.spawn(&app, generation) {
+            Ok(exited) => exited,
             Err(error) => {
                 if let Some(track) = self.tracks().get_mut(id) {
                     track.starting = false;
@@ -473,10 +475,6 @@ impl Supervisor {
                 return Err(error);
             }
         };
-        let mut exited = live.exited.clone();
-        if let Some(track) = self.tracks().get_mut(id) {
-            track.live = Some(live);
-        }
         self.emit(id, false);
         let deadline = Instant::now() + self.settings().port_wait;
         let opened = loop {
