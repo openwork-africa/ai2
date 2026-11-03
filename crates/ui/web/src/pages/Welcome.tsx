@@ -50,10 +50,7 @@ export default function Welcome() {
   return (
     <div className="surface-light flex h-svh min-h-120 flex-col bg-background text-foreground">
       <header className="flex items-center justify-between px-5 pt-5 sm:px-8 sm:pt-7">
-        <span className="flex items-center gap-2.5">
-          <Mark className="size-7" />
-          <span className="font-heading text-sm font-semibold tracking-tight">{welcome.name}</span>
-        </span>
+        <Mark className="size-7" />
         <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
           <Link to="/setup">{welcome.skip}</Link>
         </Button>

@@ -128,7 +128,6 @@ export default function Setup() {
               <Mark />
             </button>
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="text-2xs font-medium text-muted-foreground">ai2</span>
               <span className="truncate font-heading text-sm font-semibold tracking-tight" data-heading>
                 {heading}
               </span>
