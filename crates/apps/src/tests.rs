@@ -78,7 +78,10 @@ fn python() -> bool {
     found
 }
 
-const SERVE: &str = "exec python3 -m http.server \"$PORT\" --bind 127.0.0.1";
+/// A plain file server. Not `python3 -m http.server`: its `HTTPServer` looks up the host name
+/// between bind and listen, and on a runner with slow DNS the port stays shut past the wait.
+const SERVER: &str = "import os,socketserver,http.server as h; socketserver.TCPServer.allow_reuse_address=True; socketserver.TCPServer(('127.0.0.1',int(os.environ['PORT'])),h.SimpleHTTPRequestHandler).serve_forever()";
+const SERVE: &str = "exec python3 -c \"import os,socketserver,http.server as h; socketserver.TCPServer.allow_reuse_address=True; socketserver.TCPServer(('127.0.0.1',int(os.environ['PORT'])),h.SimpleHTTPRequestHandler).serve_forever()\"";
 
 fn fast(supervise: bool) -> Settings {
     Settings {
@@ -551,7 +554,7 @@ async fn on_failure_restarts_with_backoff_then_gives_up() {
         return;
     }
     let home = home();
-    let crash = "exec python3 -c \"import http.server,threading,os,time; s=http.server.HTTPServer(('127.0.0.1',int(os.environ['PORT'])),http.server.SimpleHTTPRequestHandler); threading.Thread(target=s.serve_forever,daemon=True).start(); time.sleep(0.6); os._exit(3)\"";
+    let crash = "exec python3 -c \"import http.server,socketserver,threading,os,time; socketserver.TCPServer.allow_reuse_address=True; s=socketserver.TCPServer(('127.0.0.1',int(os.environ['PORT'])),http.server.SimpleHTTPRequestHandler); threading.Thread(target=s.serve_forever,daemon=True).start(); time.sleep(0.6); os._exit(3)\"";
     let mut app = new_app(&home, "Crash", crash, free_port());
     app.restart = Some(Restart::OnFailure);
     home.store.register(app).unwrap();
@@ -620,13 +623,8 @@ async fn a_process_ai2_did_not_start_is_never_stopped() {
     let home = home();
     let port = free_port();
     let mut theirs = std::process::Command::new("python3")
-        .args([
-            "-m",
-            "http.server",
-            &port.to_string(),
-            "--bind",
-            "127.0.0.1",
-        ])
+        .args(["-c", SERVER])
+        .env("PORT", port.to_string())
         .current_dir(&home.app_dir)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
