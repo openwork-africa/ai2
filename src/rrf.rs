@@ -46,21 +46,11 @@ struct Answer {
     factors: BTreeMap<String, Scored>,
 }
 
-pub struct Scratch {
-    pub dir: PathBuf,
-}
-impl Scratch {
-    pub fn path(&self) -> &Path {
-        &self.dir
-    }
-}
 pub struct ReviewTask {
-    pub folder: PathBuf,
     pub prompt: String,
     pub prompt_file: PathBuf,
     pub skills: PathBuf,
     pub scratch: PathBuf,
-    pub out: PathBuf,
     pub providers: Option<PathBuf>,
     pub model_name: Option<String>,
 }
@@ -160,9 +150,6 @@ impl Rrf {
             choice: "auto".into(),
         }
     }
-    pub fn scratch_path(&self) -> Option<&Path> {
-        self.scratch.as_deref()
-    }
 }
 impl Default for Rrf {
     fn default() -> Self {
@@ -253,12 +240,10 @@ fn rrf(
     let prompt_file = work.join("prompt.md");
     std::fs::write(&prompt_file, &prompt_text)?;
     let task_ctx = ReviewTask {
-        folder: setup.folder.clone(),
         prompt: prompt_text,
         prompt_file: prompt_file.clone(),
         skills: skills.clone(),
         scratch: work.to_path_buf(),
-        out: out.clone(),
         providers: rrf_step.providers.clone(),
         model_name: rrf_step.model_name.clone(),
     };
