@@ -15,11 +15,13 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures_util::stream::{self, Stream, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -112,11 +114,24 @@ pub fn run(ui: &crate::Options, setup: ::setup::Options, launch: Launch) -> Resu
     let ready = ::setup::setup(&setup, true)
         .map(|(ok, _)| ok)
         .unwrap_or(false);
-    runtime.block_on(async move {
-        let server = Server::bind(launch.port, ui).await?;
-        if ready {
-            return home(server, launch.open).await;
+    if ready {
+        if let Some(url) = crate::service::reuse(&ui.home, launch.port, None) {
+            println!(
+                "{}",
+                json!({ "url": url, "setup": "done", "running": true })
+            );
+            if launch.open {
+                crate::open_or_say(&url);
+            }
+            return Ok(true);
         }
+    }
+    runtime.block_on(async move {
+        if ready {
+            return home(Server::bind(launch.port, ui).await?, launch.open).await;
+        }
+        let server = Server::bind(0, ui).await?;
+        server.state().handover.store(true, Ordering::SeqCst);
         serve(server, Engine::system(setup), false, launch.open).await
     })
 }
@@ -125,25 +140,86 @@ async fn home(server: Server, open: bool) -> Result<bool> {
     let url = server.url(None);
     println!("{}", json!({ "url": url, "setup": "done" }));
     if open {
-        if let Err(error) = crate::open(&url) {
-            eprintln!("ai2: could not open the browser, open the url yourself: {error:#}");
-        }
+        crate::open_or_say(&url);
     }
     server.serve().await?;
     Ok(true)
 }
+
+pub const HANDOVER_GRACE: Duration = Duration::from_secs(5);
 
 pub async fn serve(server: Server, engine: Engine, check: bool, open: bool) -> Result<bool> {
     let bridge = arm(&server.state(), engine, check);
     let url = server.url(Some(first_page(check)));
     println!("{}", json!({ "url": url, "setup": true }));
     if open {
-        if let Err(error) = crate::open(&url) {
-            eprintln!("ai2: could not open the browser, open the url yourself: {error:#}");
-        }
+        crate::open_or_say(&url);
     }
-    server.serve().await?;
+    let mut stop = server.state().stop.subscribe();
+    tokio::select! {
+        served = server.serve() => served?,
+        _ = async {
+            let _ = stop.wait_for(|stopped| *stopped).await;
+            tokio::time::sleep(HANDOVER_GRACE).await;
+        } => {}
+    }
     Ok(bridge.ok().unwrap_or(true))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Dashboard {
+    pub here: bool,
+    pub url: Option<String>,
+}
+
+pub fn dashboard_of(
+    port: u16,
+    dashboard: u16,
+    found: impl FnOnce() -> Option<String>,
+) -> Dashboard {
+    if port == dashboard {
+        return Dashboard {
+            here: true,
+            url: None,
+        };
+    }
+    Dashboard {
+        here: false,
+        url: found(),
+    }
+}
+
+fn find_dashboard(state: &UiState) -> Dashboard {
+    dashboard_of(state.port, state.dashboard, || {
+        crate::service::running(&state.home, state.dashboard, None)
+    })
+}
+
+pub const HANDOVER_DELAY: Duration = Duration::from_millis(800);
+
+pub fn hand_over(state: &Shared) -> bool {
+    if !state.handover.swap(false, Ordering::SeqCst) {
+        return false;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        let found = tokio::task::spawn_blocking({
+            let state = state.clone();
+            move || find_dashboard(&state)
+        })
+        .await
+        .ok()
+        .and_then(|dashboard| dashboard.url);
+        if let Some(url) = found {
+            println!(
+                "{}",
+                json!({ "url": url, "setup": "done", "running": true })
+            );
+        }
+        tokio::time::sleep(HANDOVER_DELAY).await;
+        let _ = state.stop.send(true);
+    });
+    true
 }
 
 pub fn first_page(check: bool) -> &'static str {
@@ -162,6 +238,32 @@ pub fn routes() -> OpenApiRouter<Shared> {
         .routes(routes!(begin))
         .routes(routes!(events))
         .routes(routes!(answer))
+        .routes(routes!(dashboard))
+        .routes(routes!(handover))
+}
+
+#[utoipa::path(
+    get,
+    path = "/setup/dashboard",
+    tag = "setup",
+    responses((status = 200, description = "Where the dashboard service answers: here, at another address with its nonce, or not yet", body = Dashboard))
+)]
+async fn dashboard(State(state): State<Shared>) -> Response {
+    match tokio::task::spawn_blocking(move || find_dashboard(&state)).await {
+        Ok(found) => Json(found).into_response(),
+        Err(_) => error(500, "dashboard_failed", "Looking for the dashboard failed."),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/setup/handover",
+    tag = "setup",
+    responses((status = 202, description = "The page has moved to the dashboard; a setup-only server stops soon after", body = Object))
+)]
+async fn handover(State(state): State<Shared>) -> Response {
+    let stopping = hand_over(&state);
+    (StatusCode::ACCEPTED, Json(json!({ "stopping": stopping }))).into_response()
 }
 
 fn host_of(state: &UiState) -> Host {

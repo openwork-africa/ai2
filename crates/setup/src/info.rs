@@ -106,6 +106,21 @@ pub fn steps_info(os: &Os) -> Vec<StepInfo> {
                 "ProtectSystem=strict makes the whole filesystem read-only for the service except the two folders it is handed.",
             )
         },
+        if mac {
+            step(
+                "dashboard",
+                "Dashboard",
+                "This page starts when you log in and keeps your apps running, at one address you can bookmark.",
+                "A LaunchAgent runs as you, not as root, so the dashboard can reach only what you can. launchd brings it back if it ever stops.",
+            )
+        } else {
+            step(
+                "dashboard",
+                "Dashboard",
+                "This page starts when you log in and keeps your apps running, at one address you can bookmark.",
+                "A systemd user unit starts when you log in and stops when you log out; loginctl enable-linger keeps it up even then.",
+            )
+        },
     ]
 }
 

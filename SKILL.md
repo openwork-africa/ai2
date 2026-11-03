@@ -134,6 +134,6 @@ To use a key later, the human starts you with `ai2 vault with <keys> -- <your co
 
 Tell the human, in a few lines:
 
-- what is installed (`ai2`, the vault service, and the page at `http://127.0.0.1:7790`, opened with `ai2 ui`);
+- what is installed (`ai2`, the vault service, and the page at `http://127.0.0.1:7797`, opened with `ai2 ui`);
 - what you connected (MCP);
 - what you registered or reviewed, and where to see it.

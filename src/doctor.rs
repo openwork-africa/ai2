@@ -101,7 +101,7 @@ pub fn rows(build: Build) -> Vec<Row> {
             version(build.name, build.version, daemon),
         ],
         #[cfg(feature = "setup")]
-        crate::setup::rows(build.name),
+        crate::setup::rows(build.name, build.version),
         #[cfg(feature = "vault")]
         crate::vault::rows(build.name),
     ]

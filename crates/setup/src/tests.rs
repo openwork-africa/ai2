@@ -23,6 +23,7 @@ fn mac_options() -> Options {
         label: files::LABEL.into(),
         keychain: None,
         admin: "/Users/ada/.ai2/vault/admin.sock".into(),
+        dashboard: files::Dashboard::default(),
     }
 }
 
@@ -34,6 +35,7 @@ fn linux_options() -> Options {
         label: files::LABEL.into(),
         keychain: None,
         admin: "/run/ai2-vault/admin.sock".into(),
+        dashboard: files::Dashboard::default(),
     }
 }
 
@@ -277,6 +279,16 @@ fn a_set_up_mac_is_left_alone() {
                 &options.home,
                 &options.state,
                 files::LABEL,
+                None,
+            ),
+        )
+        .file(
+            "/Users/ada/Library/LaunchAgents/africa.openwork.ai2-ui.plist",
+            &files::ui_plist(
+                &options.bin,
+                &options.home,
+                files::UI_LABEL,
+                files::UI_PORT,
                 None,
             ),
         );
@@ -545,6 +557,8 @@ fn every_step_is_announced_before_it_runs_and_after_it_settles() {
             "finished presence \"ready\"",
             "started daemon",
             "finished daemon \"ready\"",
+            "started dashboard",
+            "finished dashboard \"ready\"",
         ]
     );
     assert_eq!(
@@ -574,6 +588,7 @@ fn steps_after_a_failure_finish_skipped_without_starting() {
             "finished master-key \"failed\"",
             "finished presence \"skipped\"",
             "finished daemon \"skipped\"",
+            "finished dashboard \"skipped\"",
         ]
     );
 }
@@ -610,10 +625,13 @@ fn each_step_has_a_title_a_why_and_a_fact_for_this_kind_of_machine() {
     assert_eq!(mac[0].title, "Containers");
     assert!(mac[2].why.contains("Touch ID"));
     assert!(mac[3].fact.contains("launchd"));
+    assert_eq!(mac[4].title, "Dashboard");
+    assert!(mac[4].fact.contains("LaunchAgent"));
     let linux = steps_info(&Host::linux(Some(255)).os);
     assert_eq!(linux[0].title, "Sandboxes");
     assert!(linux[1].why.contains("systemd-creds"));
     assert!(linux[2].why.contains("passphrase"));
+    assert!(linux[4].fact.contains("systemd user unit"));
     let old = steps_info(&Host::mac(15, true).os);
     assert!(old[0].why.contains("cannot keep agents in a container"));
     assert_eq!(
@@ -673,10 +691,7 @@ fn the_daemon_step_ends_by_adding_the_host_sandbox_alone_with_touch_id() {
         .unwrap();
     assert!(asked.contains("Touch ID") && asked.contains("this one change"));
     assert!(fake.asked.borrow().is_empty());
-    assert_eq!(
-        fake.steps.borrow().last().unwrap(),
-        "finished daemon \"ready\""
-    );
+    assert_eq!(fake.steps.borrow()[7], "finished daemon \"ready\"");
 }
 
 #[test]
@@ -823,4 +838,269 @@ fn this_machine_checks_without_changing_anything() {
     let options = Options::new("/usr/local/bin/ai2", "/tmp/ai2-setup-check");
     let (_, report) = crate::setup(&options, true).unwrap();
     println!("{report}");
+}
+
+fn dashboard_context<T>(
+    host: &Host,
+    options: &Options,
+    fake: &Fake,
+    check_only: bool,
+    each: impl FnOnce(&Context) -> T,
+) -> T {
+    let master = MemoryKey::default();
+    let admin = FakeAdmin::with(&[HOST_SANDBOX]);
+    let presence = || -> Result<bool> { Ok(true) };
+    let ctx = Context {
+        host,
+        options,
+        runner: fake,
+        master: &master,
+        admin: &admin,
+        presence: &presence,
+        check_only,
+    };
+    each(&ctx)
+}
+
+fn dashboard(host: &Host, options: &Options, fake: &Fake, check_only: bool) -> crate::State {
+    use crate::steps::DashboardStep;
+    use crate::Step;
+    dashboard_context(host, options, fake, check_only, |ctx| {
+        let checked = DashboardStep.check(ctx).unwrap();
+        if check_only || checked.is_ready() || checked.status == crate::Status::Unsupported {
+            return checked;
+        }
+        DashboardStep.apply(ctx, &checked).unwrap()
+    })
+}
+
+const UI_PLIST: &str = "/Users/ada/Library/LaunchAgents/africa.openwork.ai2-ui.plist";
+const UI_UNIT: &str = "/home/ada/.config/systemd/user/ai2-ui.service";
+
+#[test]
+fn a_fresh_mac_gets_the_dashboard_launch_agent_after_the_vault() {
+    let (fake, ok, report) = fresh_mac(&FakeAdmin::with(&[HOST_SANDBOX]));
+    assert!(ok, "{report}");
+    assert_eq!(status(&report, "dashboard"), "ready");
+    assert_eq!(report["steps"]["dashboard"]["port"], 7797);
+    assert_eq!(report["steps"]["dashboard"]["plist"], UI_PLIST);
+    assert_eq!(
+        report["steps"]["dashboard"]["restart"],
+        "launchctl kickstart -k gui/501/africa.openwork.ai2-ui"
+    );
+    let vault = fake
+        .at("launchctl bootstrap gui/501 /Users/ada/Library/LaunchAgents/africa.openwork.ai2-vault.plist")
+        .unwrap();
+    let ui = fake
+        .at(&format!("launchctl bootstrap gui/501 {UI_PLIST}"))
+        .unwrap();
+    assert!(vault < ui);
+    let options = mac_options();
+    let files = fake.files.borrow();
+    let (plist, mode) = &files[Path::new(UI_PLIST)];
+    assert_eq!(
+        plist,
+        &files::ui_plist(&options.bin, &options.home, files::UI_LABEL, 7797, None)
+    );
+    assert_eq!(*mode, 0o644);
+    assert_eq!(files[Path::new("/Users/ada/.ai2/ui")].1, 0o700);
+    assert!(!fake.ran_any("root"));
+}
+
+#[test]
+fn a_dashboard_check_reports_missing_and_changes_nothing() {
+    let fake = Fake::default();
+    fake.answer("launchctl print", Ran::failed());
+    let state = dashboard(&Host::mac(26, true), &mac_options(), &fake, true);
+    assert_eq!(state.status, crate::Status::Missing);
+    assert_eq!(state.info["written"], false);
+    assert_eq!(state.info["loaded"], false);
+    assert!(fake.files.borrow().is_empty());
+    assert_eq!(
+        fake.lines(),
+        ["launchctl print gui/501/africa.openwork.ai2-ui"]
+    );
+}
+
+#[test]
+fn a_dashboard_already_in_place_is_ready_and_left_alone() {
+    let fake = Fake::default();
+    let options = mac_options();
+    fake.file(
+        UI_PLIST,
+        &files::ui_plist(&options.bin, &options.home, files::UI_LABEL, 7797, None),
+    );
+    let state = dashboard(&Host::mac(26, true), &options, &fake, false);
+    assert!(state.is_ready());
+    assert!(!fake.ran_any("launchctl bootstrap") && !fake.ran_any("launchctl bootout"));
+}
+
+#[test]
+fn a_changed_dashboard_is_booted_out_and_loaded_again() {
+    let fake = Fake::default();
+    fake.file(UI_PLIST, "<plist>old</plist>");
+    let state = dashboard(&Host::mac(26, true), &mac_options(), &fake, false);
+    assert!(state.is_ready(), "{state:?}");
+    let out = fake
+        .at("launchctl bootout gui/501/africa.openwork.ai2-ui")
+        .unwrap();
+    let back = fake
+        .at(&format!("launchctl bootstrap gui/501 {UI_PLIST}"))
+        .unwrap();
+    assert!(out < back);
+}
+
+#[test]
+fn the_dashboard_never_boots_itself_out_when_it_runs_setup() {
+    use crate::runner::Runner;
+    let fake = Fake::default();
+    fake.file(UI_PLIST, "<plist>old</plist>");
+    let mut options = mac_options();
+    options.dashboard.in_service = true;
+    let state = dashboard(&Host::mac(26, true), &options, &fake, false);
+    assert!(state.is_ready());
+    assert!(!fake.ran_any("launchctl bootout") && !fake.ran_any("launchctl bootstrap"));
+    assert!(state.warnings[0].starts_with(crate::steps::IN_SERVICE));
+    assert!(state.warnings[0].contains("launchctl kickstart -k gui/501/africa.openwork.ai2-ui"));
+    assert_ne!(
+        fake.read(Path::new(UI_PLIST)).unwrap(),
+        "<plist>old</plist>"
+    );
+}
+
+#[test]
+fn a_named_dashboard_label_and_port_reach_the_launch_agent() {
+    use crate::runner::Runner;
+    let fake = Fake::default();
+    fake.once("launchctl print", Ran::failed());
+    let mut options = mac_options();
+    options.dashboard.label = "test.ai2-ui".into();
+    options.dashboard.port = 8123;
+    let state = dashboard(&Host::mac(26, true), &options, &fake, false);
+    assert!(state.is_ready());
+    let path = "/Users/ada/Library/LaunchAgents/test.ai2-ui.plist";
+    assert!(fake.ran_any(&format!("launchctl bootstrap gui/501 {path}")));
+    assert!(!fake.ran_any("launchctl bootout"));
+    assert!(fake
+        .read(Path::new(path))
+        .unwrap()
+        .contains("<string>8123</string>"));
+}
+
+#[test]
+fn a_fresh_linux_gets_the_dashboard_as_a_user_unit() {
+    let fake = Fake::default();
+    linux_fresh(&fake);
+    fake.once("systemctl --user is-active", Ran::failed());
+    let master = MemoryKey::default();
+    let (ok, report) = setup(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        &master,
+        false,
+        false,
+    );
+    assert!(ok, "{report} {:?}", fake.lines());
+    assert_eq!(status(&report, "dashboard"), "ready");
+    assert_eq!(report["steps"]["dashboard"]["unit"], UI_UNIT);
+    assert_eq!(
+        report["steps"]["dashboard"]["restart"],
+        "systemctl --user restart ai2-ui.service"
+    );
+    let options = linux_options();
+    let files = fake.files.borrow();
+    assert_eq!(
+        files[Path::new(UI_UNIT)].0,
+        files::ui_unit(&options.bin, &options.home, 7797)
+    );
+    let order = [
+        "root systemctl enable --now ai2-vault.service",
+        "systemctl --user daemon-reload",
+        "systemctl --user enable --now ai2-ui.service",
+    ]
+    .map(|line| {
+        fake.at(line)
+            .unwrap_or_else(|| panic!("{line}: {:?}", fake.lines()))
+    });
+    assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(!fake.ran_any("root systemctl --user"));
+    assert!(!fake.ran_any("systemctl --user restart"));
+}
+
+#[test]
+fn a_linux_dashboard_check_never_writes_or_starts() {
+    let fake = Fake::default();
+    fake.answer("systemctl --user is-active", Ran::failed());
+    let state = dashboard(&Host::linux(Some(255)), &linux_options(), &fake, true);
+    assert_eq!(state.status, crate::Status::Missing);
+    assert!(fake.files.borrow().is_empty());
+    assert_eq!(
+        fake.lines(),
+        [
+            "systemctl --user is-enabled --quiet ai2-ui.service",
+            "systemctl --user is-active --quiet ai2-ui.service"
+        ]
+    );
+}
+
+#[test]
+fn a_running_linux_dashboard_restarts_after_its_unit_changes_unless_it_runs_setup() {
+    let fake = Fake::default();
+    fake.file(UI_UNIT, "[Service]\nExecStart=/old\n");
+    let state = dashboard(&Host::linux(Some(255)), &linux_options(), &fake, false);
+    assert!(state.is_ready());
+    assert!(
+        fake.at("systemctl --user restart ai2-ui.service").unwrap()
+            > fake
+                .at("systemctl --user enable --now ai2-ui.service")
+                .unwrap()
+    );
+
+    let inside = Fake::default();
+    inside.file(UI_UNIT, "[Service]\nExecStart=/old\n");
+    let mut options = linux_options();
+    options.dashboard.in_service = true;
+    let state = dashboard(&Host::linux(Some(255)), &options, &inside, false);
+    assert!(state.is_ready());
+    assert!(!inside.ran_any("systemctl --user restart"));
+    assert!(state.warnings[0].contains("systemctl --user restart ai2-ui.service"));
+}
+
+#[test]
+fn a_failed_user_unit_start_fails_the_dashboard_step() {
+    use crate::steps::DashboardStep;
+    use crate::Step;
+    let fake = Fake::default();
+    fake.answer("systemctl --user enable", Ran::failed())
+        .answer("systemctl --user is-active", Ran::failed());
+    let error = dashboard_context(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        false,
+        |ctx| {
+            let checked = DashboardStep.check(ctx).unwrap();
+            DashboardStep.apply(ctx, &checked).unwrap_err()
+        },
+    );
+    assert_eq!(error.to_string(), "starting ai2-ui.service failed");
+}
+
+#[test]
+fn without_systemd_or_on_another_os_the_dashboard_is_unsupported() {
+    for host in [
+        Host::linux(None),
+        Host {
+            os: crate::host::Os::Other {
+                name: "freebsd".into(),
+            },
+            ..Host::linux(None)
+        },
+    ] {
+        let fake = Fake::default();
+        let state = dashboard(&host, &linux_options(), &fake, false);
+        assert_eq!(state.status, crate::Status::Unsupported);
+        assert!(fake.lines().is_empty());
+    }
 }

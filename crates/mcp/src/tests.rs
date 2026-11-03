@@ -362,9 +362,9 @@ fn every_tool_schema_is_derived_from_its_shared_serde_types() {
 fn the_openapi_document_has_one_operation_per_tool_with_the_tools_own_schemas() {
     let fixture = Fixture::new();
     let server = Server::new(fixture.pieces(PathBuf::from("/bin/false")));
-    let document = server.openapi("http://127.0.0.1:7790/mcp");
+    let document = server.openapi("http://127.0.0.1:7797/mcp");
     assert_eq!(document["openapi"], "3.1.0");
-    assert_eq!(document["servers"][0]["url"], "http://127.0.0.1:7790/mcp");
+    assert_eq!(document["servers"][0]["url"], "http://127.0.0.1:7797/mcp");
     let paths = document["paths"].as_object().unwrap();
     let tools = server.tool_list();
     assert_eq!(paths.len(), tools.len());

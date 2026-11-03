@@ -11,6 +11,7 @@ pub mod reviews;
 mod routes;
 mod security;
 mod server;
+pub mod service;
 mod settings;
 pub mod setup;
 mod state;
@@ -31,7 +32,7 @@ pub use server::Server;
 pub use state::{Shared, State};
 pub use status::features;
 
-pub const DEFAULT_PORT: u16 = 7790;
+pub const DEFAULT_PORT: u16 = ::setup::files::UI_PORT;
 pub const TABS: [&str; 5] = ["apps", "setup", "reviews", "vault", "harnesses"];
 
 #[derive(Clone, Debug)]
@@ -49,9 +50,8 @@ pub fn command() -> Command {
                 .long("port")
                 .value_name("PORT")
                 .env("AI2_UI_PORT")
-                .default_value("7790")
                 .value_parser(value_parser!(u16))
-                .help("The port on 127.0.0.1; 0 picks a free one and a fresh nonce"),
+                .help("The port on 127.0.0.1, 7797 unless set; 0 picks a free one and a fresh nonce"),
         )
         .arg(
             Arg::new("no-open")
@@ -114,29 +114,42 @@ pub fn serve_page(
     open_browser: bool,
     extra: serde_json::Map<String, serde_json::Value>,
 ) -> Result<bool> {
+    let printed = |url: &str, running: bool| {
+        let mut printed = serde_json::json!({
+            "url": url,
+            "admin_socket": options.admin.display().to_string(),
+        });
+        if let serde_json::Value::Object(printed) = &mut printed {
+            if running {
+                printed.insert("running".into(), true.into());
+            }
+            printed.extend(extra.clone());
+        }
+        println!("{printed}");
+        if open_browser {
+            open_or_say(url);
+        }
+    };
+    if let Some(url) = service::reuse(&options.home, port, page) {
+        printed(&url, true);
+        return Ok(true);
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("starting the ui runtime")?;
     runtime.block_on(async move {
         let server = Server::bind(port, options).await?;
-        let url = server.url(page);
-        let mut printed = serde_json::json!({
-            "url": url,
-            "admin_socket": options.admin.display().to_string(),
-        });
-        if let serde_json::Value::Object(printed) = &mut printed {
-            printed.extend(extra);
-        }
-        println!("{printed}");
-        if open_browser {
-            if let Err(error) = open(&url) {
-                eprintln!("ai2: could not open the browser, open the url yourself: {error:#}");
-            }
-        }
+        printed(&server.url(page), false);
         server.serve().await
     })?;
     Ok(true)
+}
+
+fn open_or_say(url: &str) {
+    if let Err(error) = open(url) {
+        eprintln!("ai2: could not open the browser, open the url yourself: {error:#}");
+    }
 }
 
 fn open(url: &str) -> Result<()> {

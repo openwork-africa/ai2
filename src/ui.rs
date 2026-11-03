@@ -20,10 +20,7 @@ pub fn options(build: Build) -> ::ui::Options {
 }
 
 pub fn port() -> u16 {
-    std::env::var("AI2_UI_PORT")
-        .ok()
-        .and_then(|port| port.parse().ok())
-        .unwrap_or(::ui::DEFAULT_PORT)
+    ::ui::service::port()
 }
 
 pub fn inject(build: Build) {

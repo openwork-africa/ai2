@@ -572,6 +572,168 @@ impl Step for Daemon {
     }
 }
 
+pub struct DashboardStep;
+
+pub const IN_SERVICE: &str = "The dashboard runs this setup itself, so it was not restarted; it picks up the change at your next login, or run ";
+
+impl DashboardStep {
+    fn restart(ctx: &Context) -> String {
+        files::ui_restart(
+            matches!(ctx.host.os, Os::Macos { .. }),
+            ctx.host.uid,
+            &ctx.options.dashboard.label,
+        )
+    }
+
+    fn launchd(&self, ctx: &Context) -> (std::path::PathBuf, String, String) {
+        let dashboard = &ctx.options.dashboard;
+        (
+            files::plist_path(&ctx.host.home, &dashboard.label),
+            files::ui_plist(
+                &ctx.options.bin,
+                &ctx.options.home,
+                &dashboard.label,
+                dashboard.port,
+                ctx.options.keychain.as_deref(),
+            ),
+            format!("gui/{}", ctx.host.uid),
+        )
+    }
+
+    fn mac_check(&self, ctx: &Context) -> Result<State> {
+        let (plist, expected, domain) = self.launchd(ctx);
+        let written = ctx.runner.read(&plist).as_deref() == Some(expected.as_str());
+        let loaded = ctx
+            .runner
+            .run(&Cmd::new(
+                "launchctl",
+                &[
+                    "print",
+                    &format!("{domain}/{}", ctx.options.dashboard.label),
+                ],
+            ))?
+            .ok;
+        Ok(State::ready(written && loaded)
+            .with("plist", path_str(&plist))
+            .with("written", written)
+            .with("loaded", loaded)
+            .with("port", ctx.options.dashboard.port)
+            .with("restart", Self::restart(ctx)))
+    }
+
+    fn mac_apply(&self, ctx: &Context, before: &State) -> Result<State> {
+        let (plist, expected, domain) = self.launchd(ctx);
+        let loaded = before.info.get("loaded") == Some(&Value::Bool(true));
+        ctx.runner.mkdir(&ctx.options.home.join("ui"), 0o700)?;
+        ctx.runner.write(&plist, &expected, 0o644)?;
+        if loaded && ctx.options.dashboard.in_service {
+            let restart = Self::restart(ctx);
+            return Ok(self
+                .mac_check(ctx)?
+                .warn(&format!("{IN_SERVICE}{restart}.")));
+        }
+        if loaded {
+            let _ = ctx.runner.run(&Cmd::new(
+                "launchctl",
+                &[
+                    "bootout",
+                    &format!("{domain}/{}", ctx.options.dashboard.label),
+                ],
+            ))?;
+        }
+        let bootstrap = Cmd::new("launchctl", &["bootstrap", &domain, &path_str(&plist)]);
+        let mut ran = ctx.runner.run(&bootstrap)?;
+        if !ran.ok {
+            ran = ctx.runner.run(&bootstrap)?;
+        }
+        must(ran, "launchctl bootstrap")?;
+        self.mac_check(ctx)
+    }
+
+    fn user_systemctl(ctx: &Context, args: &[&str]) -> Result<Ran> {
+        let mut all = vec!["--user"];
+        all.extend_from_slice(args);
+        ctx.runner.run(&Cmd::new("systemctl", &all))
+    }
+
+    fn linux_check(&self, ctx: &Context) -> Result<State> {
+        let unit = files::ui_unit_path(&ctx.host.home);
+        let expected = files::ui_unit(
+            &ctx.options.bin,
+            &ctx.options.home,
+            ctx.options.dashboard.port,
+        );
+        let written = ctx.runner.read(&unit).as_deref() == Some(expected.as_str());
+        let enabled = Self::user_systemctl(ctx, &["is-enabled", "--quiet", files::UI_UNIT])?.ok;
+        let active = Self::user_systemctl(ctx, &["is-active", "--quiet", files::UI_UNIT])?.ok;
+        Ok(State::ready(written && enabled && active)
+            .with("unit", path_str(&unit))
+            .with("written", written)
+            .with("enabled", enabled)
+            .with("loaded", active)
+            .with("port", ctx.options.dashboard.port)
+            .with("restart", Self::restart(ctx)))
+    }
+
+    fn linux_apply(&self, ctx: &Context, before: &State) -> Result<State> {
+        let unit = files::ui_unit_path(&ctx.host.home);
+        let changed = before.info.get("written") != Some(&Value::Bool(true));
+        let active = before.info.get("loaded") == Some(&Value::Bool(true));
+        ctx.runner.write(
+            &unit,
+            &files::ui_unit(
+                &ctx.options.bin,
+                &ctx.options.home,
+                ctx.options.dashboard.port,
+            ),
+            0o644,
+        )?;
+        must(
+            Self::user_systemctl(ctx, &["daemon-reload"])?,
+            "systemctl --user daemon-reload",
+        )?;
+        must(
+            Self::user_systemctl(ctx, &["enable", "--now", files::UI_UNIT])?,
+            &format!("starting {}", files::UI_UNIT),
+        )?;
+        if active && changed && ctx.options.dashboard.in_service {
+            let restart = Self::restart(ctx);
+            return Ok(self
+                .linux_check(ctx)?
+                .warn(&format!("{IN_SERVICE}{restart}.")));
+        }
+        if active && changed {
+            must(
+                Self::user_systemctl(ctx, &["restart", files::UI_UNIT])?,
+                &format!("restarting {}", files::UI_UNIT),
+            )?;
+        }
+        self.linux_check(ctx)
+    }
+}
+
+impl Step for DashboardStep {
+    fn id(&self) -> &'static str {
+        "dashboard"
+    }
+
+    fn check(&self, ctx: &Context) -> Result<State> {
+        match &ctx.host.os {
+            Os::Macos { .. } => self.mac_check(ctx),
+            Os::Linux { systemd: Some(_) } => self.linux_check(ctx),
+            _ => Ok(State::new(Status::Unsupported)),
+        }
+    }
+
+    fn apply(&self, ctx: &Context, checked: &State) -> Result<State> {
+        match &ctx.host.os {
+            Os::Macos { .. } => self.mac_apply(ctx, checked),
+            Os::Linux { systemd: Some(_) } => self.linux_apply(ctx, checked),
+            _ => Ok(checked.clone()),
+        }
+    }
+}
+
 pub const HOST_PROMPT: &str = "Vault passphrase, to add the sandbox host and nothing else: ";
 
 fn host_sandbox(ctx: &Context, state: State) -> State {
