@@ -17,7 +17,7 @@ export const CHAPTERS: Chapter[] = [
   },
   {
     id: "consume",
-    title: "All your apps live in one place, where you manage them, your agents reach them, and each build teaches the next.",
+    title: "Your apps stay close, where you can care for them and your agents can call on them, and every one you finish makes the next one easier to begin.",
     body: "Start them, stop them, read their logs and change their settings from one shelf. Your agents reach each one through MCP and its OpenAPI document. Set up comes next, and it gets the vault ready on this machine.",
     image: "/welcome/consume.webp",
     alt: "Jars of apps on a shelf, a hand lifting the green one.",
