@@ -450,8 +450,6 @@ fn rrf(
     work: &Path,
 ) -> Result<(Rating, Vec<Finding>)> {
     let skills = work.join(".claude").join("skills");
-    // A loose file at the top (a Finder .DS_Store) is written before any folder makes the base.
-    std::fs::create_dir_all(&skills).context("writing the skills")?;
     SKILLS.extract(&skills).context("writing the skills")?;
     let out = work.join("findings.json");
     let read: Vec<String> = SKILL_NAMES

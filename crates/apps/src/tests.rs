@@ -78,10 +78,7 @@ fn python() -> bool {
     found
 }
 
-/// A plain file server. Not `python3 -m http.server`: its `HTTPServer` looks up the host name
-/// between bind and listen, and on a runner with slow DNS the port stays shut past the wait.
-const SERVER: &str = "import os,socketserver,http.server as h; socketserver.TCPServer.allow_reuse_address=True; socketserver.TCPServer(('127.0.0.1',int(os.environ['PORT'])),h.SimpleHTTPRequestHandler).serve_forever()";
-const SERVE: &str = "exec python3 -c \"import os,socketserver,http.server as h; socketserver.TCPServer.allow_reuse_address=True; socketserver.TCPServer(('127.0.0.1',int(os.environ['PORT'])),h.SimpleHTTPRequestHandler).serve_forever()\"";
+const SERVE: &str = "exec python3 -m http.server \"$PORT\" --bind 127.0.0.1";
 
 fn fast(supervise: bool) -> Settings {
     Settings {
@@ -95,22 +92,6 @@ fn fast(supervise: bool) -> Settings {
         restart_limit: 3,
         poll: Duration::from_millis(50),
         recheck: Duration::from_secs(60),
-    }
-}
-
-/// Starts an app, and on failure shows what the app printed so a CI log says why.
-async fn started(supervisor: &Supervisor, id: &str) -> crate::model::Shown {
-    match supervisor.start(id).await {
-        Ok(shown) => shown,
-        Err(problem) => {
-            let log = problem
-                .message
-                .rsplit("see ")
-                .next()
-                .and_then(|path| std::fs::read_to_string(path).ok())
-                .unwrap_or_default();
-            panic!("{problem:?}\n--- app log ---\n{log}");
-        }
     }
 }
 
@@ -479,7 +460,7 @@ async fn start_checks_the_api_and_stop_ends_the_process_group() {
         .register(new_app(&home, "Serve", SERVE, port))
         .unwrap();
     let supervisor = Supervisor::with(home.store.clone(), fast(false));
-    let shown = started(&supervisor, "serve").await;
+    let shown = supervisor.start("serve").await.unwrap();
     assert!(shown.status.running);
     assert!(shown.status.started_here);
     assert_eq!(shown.api.state, ApiState::Valid);
@@ -533,7 +514,7 @@ async fn a_supervised_app_streams_its_pipes_into_the_ring_and_the_file() {
     home.store.register(app).unwrap();
     let supervisor = Supervisor::with(home.store.clone(), fast(true));
     let mut events = supervisor.events();
-    started(&supervisor, "piped").await;
+    supervisor.start("piped").await.unwrap();
     eventually("both streams", || {
         let lines = supervisor.replay("piped", None);
         lines
@@ -570,12 +551,12 @@ async fn on_failure_restarts_with_backoff_then_gives_up() {
         return;
     }
     let home = home();
-    let crash = "exec python3 -c \"import http.server,socketserver,threading,os,time; socketserver.TCPServer.allow_reuse_address=True; s=socketserver.TCPServer(('127.0.0.1',int(os.environ['PORT'])),http.server.SimpleHTTPRequestHandler); threading.Thread(target=s.serve_forever,daemon=True).start(); time.sleep(0.6); os._exit(3)\"";
+    let crash = "exec python3 -c \"import http.server,threading,os,time; s=http.server.HTTPServer(('127.0.0.1',int(os.environ['PORT'])),http.server.SimpleHTTPRequestHandler); threading.Thread(target=s.serve_forever,daemon=True).start(); time.sleep(0.6); os._exit(3)\"";
     let mut app = new_app(&home, "Crash", crash, free_port());
     app.restart = Some(Restart::OnFailure);
     home.store.register(app).unwrap();
     let supervisor = Supervisor::with(home.store.clone(), fast(true));
-    started(&supervisor, "crash").await;
+    supervisor.start("crash").await.unwrap();
     let mut status = supervisor.status("crash").await.unwrap();
     for _ in 0..200 {
         if status.crashed {
@@ -639,8 +620,13 @@ async fn a_process_ai2_did_not_start_is_never_stopped() {
     let home = home();
     let port = free_port();
     let mut theirs = std::process::Command::new("python3")
-        .args(["-c", SERVER])
-        .env("PORT", port.to_string())
+        .args([
+            "-m",
+            "http.server",
+            &port.to_string(),
+            "--bind",
+            "127.0.0.1",
+        ])
         .current_dir(&home.app_dir)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

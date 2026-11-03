@@ -177,8 +177,6 @@ export default function Apps() {
         )}
       </PageHeader>
 
-      <McpConnect />
-
       {error && (
         <Alert variant="destructive">
           <TriangleAlert />
@@ -230,6 +228,10 @@ export default function Apps() {
       {apps && apps.length > 0 && shown?.length === 0 && (
         <p className="text-sm text-muted-foreground">Nothing here answers to “{filter}”.</p>
       )}
+
+      <div className="border-t pt-8">
+        <McpConnect />
+      </div>
     </Page>
   );
 }

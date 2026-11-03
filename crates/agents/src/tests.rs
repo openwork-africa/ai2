@@ -290,7 +290,7 @@ fn a_run_streams_its_lines_records_its_exit_and_is_reviewed_after() {
     }));
 
     assert_eq!(agents.runs().get(&run.id).unwrap(), *run);
-    assert_eq!(agents.runs().list(), std::slice::from_ref(run));
+    assert_eq!(agents.runs().list(), [run.clone()]);
     let log = std::fs::read_to_string(&run.log).unwrap();
     assert!(log.contains("working on: fix the login") && log.contains("a warning"));
     assert!(Path::new(&run.log).starts_with(fixture.home.path().join("runs").join(&run.id)));

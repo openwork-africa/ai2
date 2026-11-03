@@ -11,7 +11,7 @@ fake = []
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-keys = { path = "../keys", version = "0.2.1" }
+keys = { path = "../keys", version = "0.2.0" }
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true

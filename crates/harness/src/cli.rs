@@ -20,9 +20,15 @@ pub enum HarnessCommand {
     List,
     Install {
         id: String,
+        /// Emit the job as JSON events for a UI instead of running it in this terminal.
+        #[arg(long)]
+        web: bool,
     },
     SignIn {
         id: String,
+        /// Emit the job as JSON events for a UI instead of running it in this terminal.
+        #[arg(long)]
+        web: bool,
     },
     Command {
         id: String,
@@ -98,6 +104,34 @@ impl Context {
             .ok_or_else(|| anyhow!("There is no harness called {id}."))
     }
 
+    fn pi_models(&self) -> Vec<ModelChoice> {
+        let text =
+            std::fs::read_to_string(self.home.join(".pi/agent/models.json")).unwrap_or_default();
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+        parsed
+            .get("providers")
+            .and_then(|providers| providers.as_object())
+            .map(|providers| {
+                providers
+                    .values()
+                    .filter_map(|provider| provider.get("models"))
+                    .filter_map(|models| models.as_array())
+                    .flatten()
+                    .filter_map(|model| {
+                        Some(ModelChoice {
+                            id: model.get("id")?.as_str()?.to_string(),
+                            label: model
+                                .get("name")
+                                .and_then(|name| name.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn listed(&self, setup: &Setup, path: &str) -> Listed {
         let known = States::at(&self.state).of(&setup.id);
         let state = State {
@@ -116,7 +150,11 @@ impl Context {
             logo: setup.logo.clone(),
             can_sign_in: setup.sign_in.is_some(),
             sign_in_hint: setup.sign_in_hint.clone(),
-            models: setup.models().to_vec(),
+            models: if setup.id == "pi" {
+                self.pi_models()
+            } else {
+                setup.models().to_vec()
+            },
             use_text: setup.use_text.clone(),
             takes_personality: takes_personality(setup),
             headless: setup.headless().is_some(),
@@ -157,21 +195,54 @@ impl Context {
             input,
             emit,
         )?;
-        if ended.ok {
+        self.finish(&setup.id, install, ended.ok);
+        Ok(ended)
+    }
+
+    fn finish(&self, id: &str, install: bool, ok: bool) {
+        if ok {
             let states = States::at(&self.state);
-            let before = states.of(&setup.id);
+            let before = states.of(id);
+            let setup = self.setup(id);
             let _ = states.set(
-                &setup.id,
+                id,
                 State {
                     installed: true,
                     signed_in: !install || before.signed_in,
                 },
             );
             if install {
-                self.registry.after_install(setup, &self.home);
+                if let Ok(setup) = setup {
+                    self.registry.after_install(setup, &self.home);
+                }
             }
         }
-        Ok(ended)
+    }
+
+    fn direct_job(&self, id: &str, install: bool) -> Result<bool> {
+        let setup = self.setup(id)?;
+        let line = if install {
+            Some(&setup.install)
+        } else {
+            setup.sign_in.as_ref()
+        };
+        let line =
+            line.ok_or_else(|| anyhow!("{} signs in the first time it runs.", setup.label))?;
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(line)
+            .env("PATH", self.path())
+            .status()?;
+        let ok = status.success();
+        self.finish(&setup.id, install, ok);
+        if !ok {
+            anyhow::bail!(
+                "{} ended with an error ({}).",
+                if install { "Install" } else { "Sign-in" },
+                status.code().unwrap_or(1)
+            );
+        }
+        Ok(true)
     }
 
     fn printed_job(&self, id: &str, install: bool) -> Result<bool> {
@@ -219,8 +290,20 @@ impl Context {
                 print(&json!({ "harnesses": self.list() }));
                 Ok(true)
             }
-            HarnessCommand::Install { id } => self.printed_job(&id, true),
-            HarnessCommand::SignIn { id } => self.printed_job(&id, false),
+            HarnessCommand::Install { id, web } => {
+                if web {
+                    self.printed_job(&id, true)
+                } else {
+                    self.direct_job(&id, true)
+                }
+            }
+            HarnessCommand::SignIn { id, web } => {
+                if web {
+                    self.printed_job(&id, false)
+                } else {
+                    self.direct_job(&id, false)
+                }
+            }
             HarnessCommand::Command {
                 id,
                 model,

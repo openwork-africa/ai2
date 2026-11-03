@@ -154,4 +154,75 @@ mod tests {
         sub.run(&matches).unwrap();
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "noop");
     }
+
+    fn direct_registry(marker: &std::path::Path) -> Registry {
+        let mut registry = Registry::default();
+        registry.put(
+            Setup {
+                id: "noop".into(),
+                label: "Noop".into(),
+                command: "true".into(),
+                install: "true".into(),
+                sign_in: Some("true".into()),
+                ..Setup::default()
+            },
+            None,
+        );
+        let seen = marker.to_path_buf();
+        registry.on_installed(Box::new(move |setup, _| {
+            std::fs::write(&seen, &setup.id)?;
+            Ok(())
+        }));
+        registry
+    }
+
+    #[test]
+    fn an_install_runs_directly_in_this_terminal_by_default() {
+        let state = tempfile::tempdir().unwrap();
+        let marker = state.path().join("hook-ran");
+        let sub = HarnessSubcommand::new(direct_registry(&marker), state.path().to_path_buf());
+        let matches = sub
+            .command()
+            .try_get_matches_from(["harness", "install", "noop"])
+            .unwrap();
+        sub.run(&matches).unwrap();
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "noop");
+    }
+
+    #[test]
+    fn a_direct_sign_in_reports_a_failing_command() {
+        let state = tempfile::tempdir().unwrap();
+        let marker = state.path().join("hook-ran");
+        let mut registry = direct_registry(&marker);
+        registry.put(
+            Setup {
+                id: "broke".into(),
+                label: "Broke".into(),
+                command: "false".into(),
+                install: "true".into(),
+                sign_in: Some("false".into()),
+                ..Setup::default()
+            },
+            None,
+        );
+        let sub = HarnessSubcommand::new(registry, state.path().to_path_buf());
+        let matches = sub
+            .command()
+            .try_get_matches_from(["harness", "sign-in", "broke"])
+            .unwrap();
+        let failed = sub.run(&matches).unwrap_err();
+        assert!(failed.to_string().contains("error (1)"), "{failed:?}");
+    }
+
+    #[test]
+    fn web_keeps_the_json_event_stream() {
+        let state = tempfile::tempdir().unwrap();
+        let marker = state.path().join("hook-ran");
+        let sub = HarnessSubcommand::new(direct_registry(&marker), state.path().to_path_buf());
+        let matches = sub
+            .command()
+            .try_get_matches_from(["harness", "sign-in", "noop", "--web"])
+            .unwrap();
+        sub.run(&matches).unwrap();
+    }
 }

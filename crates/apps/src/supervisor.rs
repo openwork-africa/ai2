@@ -244,9 +244,7 @@ impl Supervisor {
         .abort_handle()
     }
 
-    /// Runs the app and records it as live before its exit can be seen, so an app that dies at
-    /// once is never left marked as started here.
-    fn spawn(&self, app: &App, generation: u64) -> Result<watch::Receiver<Option<Exit>>> {
+    fn spawn(&self, app: &App, generation: u64) -> Result<Live> {
         let piped = self.settings().supervise && app.restart != Restart::Never;
         let mut file = self.store().mark_start(&app.id)?;
         let mut command = tokio::process::Command::new("/bin/sh");
@@ -292,31 +290,19 @@ impl Supervisor {
             }),
         );
         let mut tasks = Vec::new();
-        let mut pumps = Vec::new();
         if piped {
             let sink = Arc::new(Mutex::new(Sink::new(&self.store().log_path(&app.id), file)));
             let logs = self.app_logs(&app.id);
             if let Some(out) = child.stdout.take() {
-                pumps.push(pump(out, Stream::Out, logs.clone(), sink.clone()));
+                pump(out, Stream::Out, logs.clone(), sink.clone());
             }
             if let Some(err) = child.stderr.take() {
-                pumps.push(pump(err, Stream::Err, logs, sink));
+                pump(err, Stream::Err, logs, sink);
             }
         } else {
             tasks.push(self.follow(&app.id));
         }
         let (tx, rx) = watch::channel(None);
-        if let Some(track) = self.tracks().get_mut(&app.id) {
-            track.live = Some(Live {
-                pid,
-                since,
-                started_at,
-                boot,
-                adopted: false,
-                exited: rx.clone(),
-                tasks,
-            });
-        }
         let me = self.clone();
         let id = app.id.clone();
         tokio::spawn(async move {
@@ -330,16 +316,21 @@ impl Supervisor {
                     signal: None,
                 },
             };
-            for done in pumps {
-                let _ = tokio::time::timeout(Duration::from_secs(2), done).await;
-            }
             let delay = me.ended(&id, generation, exit, piped);
             let _ = tx.send(Some(exit));
             if let Some(delay) = delay {
                 me.respawn(id, generation, delay).await;
             }
         });
-        Ok(rx)
+        Ok(Live {
+            pid,
+            since,
+            started_at,
+            boot,
+            adopted: false,
+            exited: rx,
+            tasks,
+        })
     }
 
     fn ended(&self, id: &str, generation: u64, exit: Exit, piped: bool) -> Option<Duration> {
@@ -414,7 +405,10 @@ impl Supervisor {
             return;
         };
         match self.spawn(&app, next) {
-            Ok(_) => {
+            Ok(live) => {
+                if let Some(track) = self.tracks().get_mut(&id) {
+                    track.live = Some(live);
+                }
                 self.emit(&id, true);
             }
             Err(error) => {
@@ -466,8 +460,8 @@ impl Supervisor {
             track.recent.clear();
             track.generation
         };
-        let mut exited = match self.spawn(&app, generation) {
-            Ok(exited) => exited,
+        let live = match self.spawn(&app, generation) {
+            Ok(live) => live,
             Err(error) => {
                 if let Some(track) = self.tracks().get_mut(id) {
                     track.starting = false;
@@ -475,6 +469,10 @@ impl Supervisor {
                 return Err(error);
             }
         };
+        let mut exited = live.exited.clone();
+        if let Some(track) = self.tracks().get_mut(id) {
+            track.live = Some(live);
+        }
         self.emit(id, false);
         let deadline = Instant::now() + self.settings().port_wait;
         let opened = loop {
@@ -675,12 +673,12 @@ fn pump(
     stream: Stream,
     logs: Arc<Logs>,
     sink: Arc<Mutex<Sink>>,
-) -> tokio::task::JoinHandle<()> {
+) {
     tokio::spawn(async move {
         let mut lines = BufReader::new(pipe).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             sink.lock().unwrap_or_else(|e| e.into_inner()).write(&line);
             logs.push(stream, line);
         }
-    })
+    });
 }

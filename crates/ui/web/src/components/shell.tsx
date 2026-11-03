@@ -87,9 +87,6 @@ export function Shell() {
               <ListChecks className="size-4" />
             </Link>
           </div>
-          <span className="px-2 font-mono text-2xs text-muted-foreground/70">
-            {status ? `v${status.version}` : " "}
-          </span>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-w-0">
