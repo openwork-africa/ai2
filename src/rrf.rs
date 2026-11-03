@@ -318,7 +318,7 @@ fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub fn log_tail(log: &Path) -> String {
+fn log_tail(log: &Path) -> String {
     let Ok(bytes) = std::fs::read(log) else {
         return String::new();
     };
