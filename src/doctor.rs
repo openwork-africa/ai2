@@ -91,19 +91,21 @@ impl Subcommand for DoctorSubcommand {
 pub fn rows(build: Build) -> Vec<Row> {
     let this = std::env::current_exe().ok();
     let first = on_path(build.name, std::env::var_os("PATH").as_deref());
-    let mut rows = vec![
-        binary(build.name, first.as_deref(), this.as_deref()),
-        version(
-            build.name,
-            build.version,
-            Some(crate::vault::daemon_version(build.name)),
-        ),
-    ];
-    rows.extend(crate::vault::setup_rows(build.name));
-    rows.push(crate::vault::admin_socket(build.name));
-    rows.push(crate::vault::sandboxes(build.name));
-    rows.push(crate::vault::vetting_model(build.name));
-    rows
+    #[cfg(feature = "vault")]
+    let daemon = Some(crate::vault::daemon_version(build.name));
+    #[cfg(not(feature = "vault"))]
+    let daemon = None;
+    [
+        vec![
+            binary(build.name, first.as_deref(), this.as_deref()),
+            version(build.name, build.version, daemon),
+        ],
+        #[cfg(feature = "setup")]
+        crate::setup::rows(build.name),
+        #[cfg(feature = "vault")]
+        crate::vault::rows(build.name),
+    ]
+    .concat()
 }
 
 pub fn passes(rows: &[Row]) -> bool {
