@@ -17,7 +17,7 @@ export const CHAPTERS: Chapter[] = [
   },
   {
     id: "consume",
-    title: "Your apps stay close, and every one you finish makes the next easier to begin.",
+    title: "Your personal apps, organised.",
     body: "Run them from one place, and let your agents call on them too.",
     image: "/welcome/consume.webp",
     alt: "Jars of apps on a shelf, a hand lifting the green one.",
