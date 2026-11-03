@@ -109,7 +109,7 @@ fn pi_command(task: &ReviewTask) -> Command {
         let agent_dir = task.scratch.join("pi");
         let _ = make_private_dir(&agent_dir);
         if let Ok(text) = std::fs::read_to_string(providers) {
-            let _ = write_private(&agent_dir.join("models.json"), &text);
+            let _ = write_private_bytes(&agent_dir.join("models.json"), text.as_bytes());
         }
         c.env("PI_CODING_AGENT_DIR", agent_dir);
     }
@@ -131,36 +131,12 @@ pub fn pick_from(reviewers: &[Reviewer], choice: &str) -> Result<Option<Reviewer
             .ok_or_else(|| anyhow!("no reviewer called {id} is registered")),
     }
 }
-#[cfg(unix)]
 fn make_private_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)?;
-    Ok(())
-}
-#[cfg(not(unix))]
-fn make_private_dir(dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(dir)?;
-    Ok(())
-}
-#[cfg(unix)]
-fn write_private(path: &Path, text: &str) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
-    use std::io::Write as _;
-    f.write_all(text.as_bytes())?;
-    Ok(())
-}
-#[cfg(not(unix))]
-fn write_private(path: &Path, text: &str) -> Result<()> {
-    std::fs::write(path, text)?;
     Ok(())
 }
 pub struct Rrf {
@@ -344,7 +320,6 @@ fn keep_log(log: &Path, out: &Path) -> Result<PathBuf> {
     Ok(kept)
 }
 
-#[cfg(unix)]
 fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write as _;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -356,11 +331,6 @@ fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
         .open(path)?;
     f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     f.write_all(bytes)?;
-    Ok(())
-}
-#[cfg(not(unix))]
-fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
-    std::fs::write(path, bytes)?;
     Ok(())
 }
 
