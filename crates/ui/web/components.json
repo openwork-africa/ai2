@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "aliases": {
+    "components": "@/components",
+    "hooks": "@/hooks",
+    "lib": "@/lib",
+    "ui": "@/components/ui",
+    "utils": "@/lib/utils"
+  },
+  "registries": {
+    "@wirekyt": "https://ui.wirekyt.com/react/r/{style}/{name}.json"
+  },
+  "rsc": false,
+  "style": "plain",
+  "tailwind": {
+    "baseColor": "neutral",
+    "css": "src/index.css",
+    "cssVariables": true
+  },
+  "tsx": true
+}

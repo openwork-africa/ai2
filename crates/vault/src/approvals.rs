@@ -1,8 +1,9 @@
 use serde::Serialize;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
+use utoipa::ToSchema;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, ToSchema)]
 pub struct Pending {
     pub id: String,
     pub token: String,

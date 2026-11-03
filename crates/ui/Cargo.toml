@@ -1,0 +1,37 @@
+[package]
+name = "ui"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "ai2 in the browser: a local server on 127.0.0.1 for setup, apps, reviews and the vault"
+
+[features]
+mcp = ["dep:mcp"]
+
+[dependencies]
+agents = { path = "../agents", features = ["schema"] }
+anyhow.workspace = true
+apps = { path = "../apps" }
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
+clap.workspace = true
+futures-util = { version = "0.3", default-features = false }
+harness = { path = "../harness" }
+include_dir = "0.7"
+mcp = { path = "../mcp", default-features = false, features = ["agents", "apps", "harness", "setup", "vault"], optional = true }
+mime_guess = "2"
+serde.workspace = true
+serde_json.workspace = true
+setup = { path = "../setup" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "process", "sync", "fs", "io-util", "signal", "time"] }
+tower-http = { version = "0.7", features = ["limit"] }
+utoipa = "6"
+utoipa-axum = "0.3"
+vault = { path = "../vault" }
+zeroize.workspace = true
+
+[dev-dependencies]
+keys = { path = "../keys" }
+setup = { path = "../setup", features = ["fake"] }
+tempfile.workspace = true
+tower = { version = "0.5", features = ["util"] }

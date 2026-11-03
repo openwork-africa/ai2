@@ -1,3 +1,4 @@
+use crate::admin::HOST_SANDBOX;
 use crate::files::{self, ADMIN_GROUP, SERVICE_BIN, UNIT, UNIT_PATH, USER};
 use crate::host::Os;
 use crate::runner::{Cmd, Ran};
@@ -301,6 +302,40 @@ pub struct PresenceStep;
 
 const HAS_FILE: &str = r#"if test -s "$1"; then echo yes; else echo no; fi"#;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Polkit {
+    Absent,
+    Missing,
+    Written,
+}
+
+impl Polkit {
+    fn word(self) -> &'static str {
+        match self {
+            Polkit::Absent => "absent",
+            Polkit::Missing => "missing",
+            Polkit::Written => "ready",
+        }
+    }
+}
+
+fn polkit(ctx: &Context) -> Result<Polkit> {
+    if found(ctx, keys::polkit::PKCHECK)?.is_none() {
+        return Ok(Polkit::Absent);
+    }
+    let expected = keys::polkit::policy(USER);
+    let written = ctx
+        .runner
+        .read(Path::new(keys::polkit::POLICY_FILE))
+        .as_deref()
+        == Some(expected.as_str());
+    Ok(if written {
+        Polkit::Written
+    } else {
+        Polkit::Missing
+    })
+}
+
 impl Step for PresenceStep {
     fn id(&self) -> &'static str {
         "presence"
@@ -316,14 +351,25 @@ impl Step for PresenceStep {
                     &Cmd::new("sh", &["-c", HAS_FILE, "sh", LINUX_PASSPHRASE])
                         .root_if(!ctx.check_only),
                 )?;
-                let state = match ran.out.trim() {
-                    "yes" => State::new(Status::Ready),
-                    "no" => State::new(Status::Missing),
+                let hashed = ran.out.trim();
+                let polkit = polkit(ctx)?;
+                let mut state = match (hashed, polkit) {
+                    ("yes", Polkit::Absent | Polkit::Written) => State::new(Status::Ready),
+                    ("yes" | "no", _) => State::new(Status::Missing),
                     _ => State::new(Status::Unknown)
                         .with("reason", "reading the passphrase hash needs sudo"),
                 };
+                if hashed == "yes" || hashed == "no" {
+                    state = state.with("passphrase", hashed == "yes");
+                }
+                let method = if polkit == Polkit::Absent {
+                    "passphrase"
+                } else {
+                    "login-password"
+                };
                 Ok(state
-                    .with("method", "passphrase")
+                    .with("method", method)
+                    .with("polkit", polkit.word())
                     .with("hash", LINUX_PASSPHRASE))
             }
             Os::Other { .. } => Ok(State::new(Status::Unsupported)),
@@ -336,13 +382,26 @@ impl Step for PresenceStep {
             Os::Other { .. } => return Ok(checked.clone()),
             Os::Linux { .. } => {}
         }
-        ctx.runner
-            .say("choose the vault passphrase; it is asked for every change to the vault");
-        let first = ctx.runner.ask_hidden("Vault passphrase: ")?;
-        let again = ctx.runner.ask_hidden("The same again: ")?;
-        if first != again {
-            bail!("the two passphrases differ");
+        if checked.info.get("polkit") == Some(&Value::from(Polkit::Missing.word())) {
+            ctx.runner.say(&format!(
+                "adding the vault's polkit policy at {}, so changes ask for your login password",
+                keys::polkit::POLICY_FILE
+            ));
+            root_write(
+                ctx,
+                keys::polkit::POLICY_FILE,
+                &keys::polkit::policy(USER),
+                "022",
+            )?;
         }
+        if checked.info.get("passphrase") == Some(&Value::Bool(true)) {
+            return self.check(ctx);
+        }
+        ctx.runner
+            .say("choose the vault passphrase; it is asked for vault changes when your login password cannot be");
+        let first = ctx
+            .runner
+            .ask_passphrase("Vault passphrase: ", "The same again: ")?;
         let hashed = keys::passphrase::hash(&first)?;
         must(
             ctx.runner
@@ -563,5 +622,227 @@ impl Step for Daemon {
             Os::Linux { .. } => self.linux_apply(ctx, checked),
             Os::Other { .. } => Ok(checked.clone()),
         }
+    }
+
+    fn settled(&self, ctx: &Context, state: State) -> Result<State> {
+        if !state.is_ready() {
+            return Ok(state);
+        }
+        Ok(host_sandbox(ctx, state))
+    }
+}
+
+pub struct DashboardStep;
+
+pub const IN_SERVICE: &str = "The dashboard runs this setup itself, so it was not restarted; it picks up the change at your next login, or run ";
+
+impl DashboardStep {
+    fn restart(ctx: &Context) -> String {
+        files::ui_restart(
+            matches!(ctx.host.os, Os::Macos { .. }),
+            ctx.host.uid,
+            &ctx.options.dashboard.label,
+        )
+    }
+
+    fn launchd(&self, ctx: &Context) -> (std::path::PathBuf, String, String) {
+        let dashboard = &ctx.options.dashboard;
+        (
+            files::plist_path(&ctx.host.home, &dashboard.label),
+            files::ui_plist(
+                &ctx.options.bin,
+                &ctx.options.home,
+                &dashboard.label,
+                dashboard.port,
+                ctx.options.keychain.as_deref(),
+            ),
+            format!("gui/{}", ctx.host.uid),
+        )
+    }
+
+    fn mac_check(&self, ctx: &Context) -> Result<State> {
+        let (plist, expected, domain) = self.launchd(ctx);
+        let written = ctx.runner.read(&plist).as_deref() == Some(expected.as_str());
+        let loaded = ctx
+            .runner
+            .run(&Cmd::new(
+                "launchctl",
+                &[
+                    "print",
+                    &format!("{domain}/{}", ctx.options.dashboard.label),
+                ],
+            ))?
+            .ok;
+        Ok(State::ready(written && loaded)
+            .with("plist", path_str(&plist))
+            .with("written", written)
+            .with("loaded", loaded)
+            .with("port", ctx.options.dashboard.port)
+            .with("restart", Self::restart(ctx)))
+    }
+
+    fn mac_apply(&self, ctx: &Context, before: &State) -> Result<State> {
+        let (plist, expected, domain) = self.launchd(ctx);
+        let loaded = before.info.get("loaded") == Some(&Value::Bool(true));
+        ctx.runner.mkdir(&ctx.options.home.join("ui"), 0o700)?;
+        ctx.runner.write(&plist, &expected, 0o644)?;
+        if loaded && ctx.options.dashboard.in_service {
+            let restart = Self::restart(ctx);
+            return Ok(self
+                .mac_check(ctx)?
+                .warn(&format!("{IN_SERVICE}{restart}.")));
+        }
+        if loaded {
+            let _ = ctx.runner.run(&Cmd::new(
+                "launchctl",
+                &[
+                    "bootout",
+                    &format!("{domain}/{}", ctx.options.dashboard.label),
+                ],
+            ))?;
+        }
+        let bootstrap = Cmd::new("launchctl", &["bootstrap", &domain, &path_str(&plist)]);
+        let mut ran = ctx.runner.run(&bootstrap)?;
+        if !ran.ok {
+            ran = ctx.runner.run(&bootstrap)?;
+        }
+        must(ran, "launchctl bootstrap")?;
+        self.mac_check(ctx)
+    }
+
+    fn user_systemctl(ctx: &Context, args: &[&str]) -> Result<Ran> {
+        let mut all = vec!["--user"];
+        all.extend_from_slice(args);
+        ctx.runner.run(&Cmd::new("systemctl", &all))
+    }
+
+    fn linux_check(&self, ctx: &Context) -> Result<State> {
+        let unit = files::ui_unit_path(&ctx.host.home);
+        let expected = files::ui_unit(
+            &ctx.options.bin,
+            &ctx.options.home,
+            ctx.options.dashboard.port,
+        );
+        let written = ctx.runner.read(&unit).as_deref() == Some(expected.as_str());
+        let enabled = Self::user_systemctl(ctx, &["is-enabled", "--quiet", files::UI_UNIT])?.ok;
+        let active = Self::user_systemctl(ctx, &["is-active", "--quiet", files::UI_UNIT])?.ok;
+        Ok(State::ready(written && enabled && active)
+            .with("unit", path_str(&unit))
+            .with("written", written)
+            .with("enabled", enabled)
+            .with("loaded", active)
+            .with("port", ctx.options.dashboard.port)
+            .with("restart", Self::restart(ctx)))
+    }
+
+    fn linux_apply(&self, ctx: &Context, before: &State) -> Result<State> {
+        let unit = files::ui_unit_path(&ctx.host.home);
+        let changed = before.info.get("written") != Some(&Value::Bool(true));
+        let active = before.info.get("loaded") == Some(&Value::Bool(true));
+        ctx.runner.write(
+            &unit,
+            &files::ui_unit(
+                &ctx.options.bin,
+                &ctx.options.home,
+                ctx.options.dashboard.port,
+            ),
+            0o644,
+        )?;
+        must(
+            Self::user_systemctl(ctx, &["daemon-reload"])?,
+            "systemctl --user daemon-reload",
+        )?;
+        must(
+            Self::user_systemctl(ctx, &["enable", "--now", files::UI_UNIT])?,
+            &format!("starting {}", files::UI_UNIT),
+        )?;
+        if active && changed && ctx.options.dashboard.in_service {
+            let restart = Self::restart(ctx);
+            return Ok(self
+                .linux_check(ctx)?
+                .warn(&format!("{IN_SERVICE}{restart}.")));
+        }
+        if active && changed {
+            must(
+                Self::user_systemctl(ctx, &["restart", files::UI_UNIT])?,
+                &format!("restarting {}", files::UI_UNIT),
+            )?;
+        }
+        self.linux_check(ctx)
+    }
+}
+
+impl Step for DashboardStep {
+    fn id(&self) -> &'static str {
+        "dashboard"
+    }
+
+    fn check(&self, ctx: &Context) -> Result<State> {
+        match &ctx.host.os {
+            Os::Macos { .. } => self.mac_check(ctx),
+            Os::Linux { systemd: Some(_) } => self.linux_check(ctx),
+            _ => Ok(State::new(Status::Unsupported)),
+        }
+    }
+
+    fn apply(&self, ctx: &Context, checked: &State) -> Result<State> {
+        match &ctx.host.os {
+            Os::Macos { .. } => self.mac_apply(ctx, checked),
+            Os::Linux { systemd: Some(_) } => self.linux_apply(ctx, checked),
+            _ => Ok(checked.clone()),
+        }
+    }
+}
+
+pub const HOST_PROMPT: &str = "Vault passphrase, to add the sandbox host and nothing else: ";
+
+fn host_sandbox(ctx: &Context, state: State) -> State {
+    let skipped = |state: State, why: String| {
+        state.with("host_sandbox", "skipped").warn(&format!(
+            "The vault sandbox {HOST_SANDBOX} was not made: {why}. Run ai2 setup again later, or ai2 vault sandbox add --name {HOST_SANDBOX}."
+        ))
+    };
+    match ctx.admin.sandboxes() {
+        Ok(names) if names.iter().any(|name| name == HOST_SANDBOX) => {
+            return state.with("host_sandbox", "present")
+        }
+        Ok(_) => {}
+        Err(error) => {
+            return skipped(
+                state,
+                format!("the vault's admin API is not reachable ({error:#})"),
+            )
+        }
+    }
+    let passphrase = match ctx.host.os {
+        Os::Linux { .. } => {
+            ctx.runner.say(&format!(
+                "adding the vault sandbox {HOST_SANDBOX}, for apps that run on this machine; the vault asks for its passphrase for this one change"
+            ));
+            match ctx.runner.ask_hidden(HOST_PROMPT) {
+                Ok(passphrase) => Some(zeroize::Zeroizing::new(passphrase)),
+                Err(error) => return skipped(state, format!("{error:#}")),
+            }
+        }
+        _ => {
+            ctx.runner.say(&format!(
+                "adding the vault sandbox {HOST_SANDBOX}, for apps that run on this machine; the vault asks for Touch ID or your password for this one change"
+            ));
+            None
+        }
+    };
+    match ctx
+        .admin
+        .add_sandbox(HOST_SANDBOX, passphrase.as_ref().map(|p| p.as_str()))
+    {
+        Ok((200..=299, _)) => state.with("host_sandbox", "created"),
+        Ok((status, value)) => skipped(
+            state,
+            format!(
+                "the vault answered {status}: {}",
+                value["message"].as_str().unwrap_or("no message")
+            ),
+        ),
+        Err(error) => skipped(state, format!("{error:#}")),
     }
 }

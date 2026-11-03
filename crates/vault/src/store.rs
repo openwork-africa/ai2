@@ -1,3 +1,4 @@
+use crate::api::{KeyView, TokenView};
 use crate::crypto::{self, Sealed};
 use crate::vet::KeyInfo;
 use anyhow::{Context, Result};
@@ -9,6 +10,7 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KeyRecord {
@@ -38,19 +40,19 @@ impl KeyRecord {
         }
     }
 
-    pub fn public(&self) -> Value {
-        json!({
-            "name": self.name,
-            "description": self.description,
-            "approved_urls": self.approved_urls,
-            "inject": self.inject,
-            "created": self.created,
-            "rotated": self.rotated,
-        })
+    pub fn view(&self) -> KeyView {
+        KeyView {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            approved_urls: self.approved_urls.clone(),
+            inject: self.inject.clone(),
+            created: self.created.clone(),
+            rotated: self.rotated.clone(),
+        }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     App,
@@ -75,34 +77,43 @@ pub struct TokenRecord {
 }
 
 impl TokenRecord {
-    pub fn public(&self) -> Value {
-        json!({
-            "id": self.id,
-            "keys": self.keys,
-            "sandbox": self.sandbox,
-            "mode": self.mode,
-            "methods": self.methods,
-            "url_prefixes": self.url_prefixes,
-            "intent": self.intent,
-            "created": crate::time::rfc3339(self.created),
-            "expires": crate::time::rfc3339(self.expires),
-            "uses_left": self.uses,
-        })
+    pub fn view(&self) -> TokenView {
+        TokenView {
+            id: self.id.clone(),
+            keys: self.keys.clone(),
+            sandbox: self.sandbox.clone(),
+            mode: self.mode,
+            methods: self.methods.clone(),
+            url_prefixes: self.url_prefixes.clone(),
+            intent: self.intent.clone(),
+            created: crate::time::rfc3339(self.created),
+            expires: crate::time::rfc3339(self.expires),
+            uses_left: self.uses,
+        }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, ToSchema)]
 #[serde(tag = "transport", rename_all = "lowercase")]
 pub enum Endpoint {
-    Unix { path: PathBuf },
-    Tcp { listen: String, peers: Vec<IpAddr> },
+    Unix {
+        #[schema(value_type = String)]
+        path: PathBuf,
+    },
+    Tcp {
+        listen: String,
+        #[schema(value_type = Vec<String>)]
+        peers: Vec<IpAddr>,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
 pub struct Sandbox {
     pub name: String,
     #[serde(flatten)]
     pub endpoint: Endpoint,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub throwaway: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

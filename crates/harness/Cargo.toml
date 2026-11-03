@@ -5,11 +5,15 @@ edition.workspace = true
 license = "Apache-2.0"
 description = "Installs coding agents, signs in to them and builds their headless command lines"
 
+[features]
+schema = ["dep:schemars"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
 libc.workspace = true
 regex.workspace = true
+schemars = { version = "1", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 

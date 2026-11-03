@@ -16,9 +16,11 @@ pub struct Headless {
     pub personality: Option<Personality>,
     pub personality_env: Option<String>,
     pub no_model: bool,
+    pub add_dir: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ModelChoice {
     pub id: String,
     pub label: String,
@@ -49,6 +51,7 @@ pub struct Setup {
     pub sign_in_hint: Option<String>,
     pub logo: Option<String>,
     pub use_text: Option<String>,
+    pub skills: Option<String>,
     pub agent: Option<Agent>,
 }
 

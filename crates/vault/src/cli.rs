@@ -1,13 +1,16 @@
 use crate::client;
 use crate::daemon::Config;
+use crate::migrate::{self, Migrate};
 use crate::policy::encode_percent;
+use crate::skill;
+use crate::ttyagent;
 use crate::with::{self, With};
 use anyhow::{bail, Result};
 use clap::{ArgMatches, FromArgMatches, Subcommand};
 use keys::tty;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -89,6 +92,13 @@ enum VaultCommand {
     },
     #[command(about = "Says whether the daemon has its master key, and its version")]
     Status,
+    #[command(about = "Applies a group of changes from a JSON file with one prompt, all or none")]
+    Apply {
+        #[arg(
+            help = "{\"actions\": [...]} or a list of actions, or - for stdin; a put_key or rotate_key without a secret asks for it"
+        )]
+        file: PathBuf,
+    },
     #[command(about = "Runs the vault daemon")]
     Serve {
         #[arg(long, help = "A providers file for the vetting model")]
@@ -96,6 +106,28 @@ enum VaultCommand {
         #[arg(long, help = "<provider>/<model-id> for the vetting model")]
         model: Option<String>,
     },
+    #[command(
+        about = "Finds secrets in plain files and stores the ones you pick; never prints a value or edits a file"
+    )]
+    Migrate {
+        #[arg(
+            long,
+            default_value = ".",
+            help = "The folder to look for .env files under"
+        )]
+        path: PathBuf,
+        #[arg(
+            long,
+            help = "<file>:<line>[=name] of a found secret to store, repeatable"
+        )]
+        take: Vec<String>,
+        #[arg(long, conflicts_with = "take", help = "Store every found secret")]
+        all: bool,
+    },
+    #[command(
+        about = "Prints the guide for AI agents: how to call the gateway and what a refusal means"
+    )]
+    Skill,
     #[command(
         about = "Runs a command with a token for some keys, and revokes the token when it exits"
     )]
@@ -106,8 +138,18 @@ enum VaultCommand {
             help = "The keys, comma separated"
         )]
         keys: Vec<String>,
-        #[arg(long, default_value = "host")]
-        sandbox: String,
+        #[arg(
+            long,
+            help = "Run on this machine with this sandbox's token [default: a throwaway container]"
+        )]
+        sandbox: Option<String>,
+        #[arg(
+            long,
+            conflicts_with = "sandbox",
+            default_value = with::IMAGE,
+            help = "The image for the throwaway container"
+        )]
+        image: String,
         #[arg(long, help = "What the command is for; needed for agent tokens")]
         intent: Option<String>,
         #[arg(long, default_value = "agent", value_parser = ["agent", "app"])]
@@ -267,6 +309,18 @@ fn usage(message: &str) -> i32 {
 pub struct Admin<'a> {
     opts: &'a Options,
     checked: Cell<bool>,
+    holding: Cell<bool>,
+    held: RefCell<Option<Zeroizing<String>>>,
+    presence: RefCell<Option<String>>,
+}
+
+pub struct Held<'b, 'a>(&'b Admin<'a>);
+
+impl Drop for Held<'_, '_> {
+    fn drop(&mut self) {
+        self.0.holding.set(false);
+        self.0.held.take();
+    }
 }
 
 impl<'a> Admin<'a> {
@@ -274,7 +328,26 @@ impl<'a> Admin<'a> {
         Admin {
             opts,
             checked: Cell::new(false),
+            holding: Cell::new(false),
+            held: RefCell::new(None),
+            presence: RefCell::new(None),
         }
+    }
+
+    pub fn hold(&self) -> Held<'_, 'a> {
+        self.holding.set(true);
+        Held(self)
+    }
+
+    fn passphrase(&self) -> Result<Zeroizing<String>> {
+        if let Some(held) = self.held.borrow().as_ref() {
+            return Ok(held.clone());
+        }
+        let asked = tty::hidden("Vault passphrase: ")?;
+        if self.holding.get() {
+            *self.held.borrow_mut() = Some(asked.clone());
+        }
+        Ok(asked)
     }
 
     fn check_version(&self) {
@@ -284,6 +357,7 @@ impl<'a> Admin<'a> {
         let Ok((200, status)) = client::call(&self.opts.admin, "GET", "/status", None, &[]) else {
             return;
         };
+        *self.presence.borrow_mut() = status["presence"].as_str().map(String::from);
         let theirs = status["version"].as_str().unwrap_or("an unknown version");
         let ours = env!("CARGO_PKG_VERSION");
         if theirs != ours {
@@ -300,8 +374,13 @@ impl<'a> Admin<'a> {
         headers: &[(&str, &str)],
     ) -> Result<(u16, Value)> {
         self.check_version();
-        let passphrase = if present && self.opts.ask_passphrase {
-            Some(tty::hidden("Vault passphrase: ")?)
+        let kind = self.presence.borrow().clone();
+        let asks = present && self.opts.ask_passphrase;
+        let _agent = (asks && kind.as_deref() == Some(keys::POLKIT))
+            .then(|| ttyagent::start(std::env::var_os("PATH").as_deref(), Path::new("/proc")))
+            .flatten();
+        let passphrase = if asks && kind.as_deref() != Some(keys::POLKIT) {
+            Some(self.passphrase()?)
         } else {
             None
         };
@@ -309,7 +388,11 @@ impl<'a> Admin<'a> {
         if let Some(passphrase) = passphrase.as_deref() {
             all.push(("X-Vault-Passphrase", passphrase.as_str()));
         }
-        client::call(&self.opts.admin, method, path, body.as_ref(), &all)
+        let answer = client::call(&self.opts.admin, method, path, body.as_ref(), &all)?;
+        if answer.0 == 401 {
+            self.held.take();
+        }
+        Ok(answer)
     }
 
     pub fn call(
@@ -470,6 +553,7 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
             admin.print("GET", &format!("/audit?tail={tail}"), None, false)
         }
         VaultCommand::Status => admin.print("GET", "/status", None, false),
+        VaultCommand::Apply { file } => apply(&admin, &file),
         VaultCommand::Serve { providers, model } => {
             let mut config = Config::new(opts.state.clone(), opts.admin.clone());
             config.sockets = opts.sockets.clone();
@@ -480,9 +564,20 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
             })?;
             Ok(exit::OK)
         }
+        VaultCommand::Migrate { path, take, all } => migrate::run(
+            &admin,
+            Migrate {
+                home: std::env::var_os("HOME").map(PathBuf::from),
+                path,
+                take,
+                all,
+            },
+        ),
+        VaultCommand::Skill => Ok(skill::run()),
         VaultCommand::With {
             keys,
             sandbox,
+            image,
             intent,
             mode,
             methods,
@@ -494,6 +589,7 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
             With {
                 keys,
                 sandbox,
+                image,
                 intent,
                 mode,
                 methods,
@@ -552,6 +648,42 @@ pub(crate) fn warn(value: &Value) {
     for warning in value["warnings"].as_array().into_iter().flatten() {
         eprintln!("ai2 vault: {}", warning.as_str().unwrap_or_default());
     }
+}
+
+fn apply(admin: &Admin, file: &Path) -> Result<i32> {
+    let text = Zeroizing::new(if file == Path::new("-") {
+        let mut text = String::new();
+        std::io::stdin().read_to_string(&mut text)?;
+        text
+    } else {
+        std::fs::read_to_string(file)?
+    });
+    let mut body: Value = match serde_json::from_str(&text) {
+        Ok(Value::Array(actions)) => json!({ "actions": actions }),
+        Ok(body) => body,
+        Err(error) => return Ok(usage(&format!("{} is not JSON: {error}", file.display()))),
+    };
+    for action in body["actions"].as_array_mut().into_iter().flatten() {
+        let asks = matches!(action["action"].as_str(), Some("put_key" | "rotate_key"));
+        if asks && action.get("secret").is_none_or(Value::is_null) {
+            let name = action["name"].as_str().unwrap_or_default().to_string();
+            let secret = tty::hidden(&format!("Secret for {name}: "))?;
+            action["secret"] = json!(secret.as_str());
+        }
+    }
+    let (status, mut value) = admin.call("POST", "/batch", Some(body), true)?;
+    let mut tokens = false;
+    for result in value["results"].as_array_mut().into_iter().flatten() {
+        warn(result);
+        if let Some(object) = result.as_object_mut() {
+            tokens |= object.remove("revoke").is_some();
+        }
+    }
+    if tokens {
+        eprintln!("ai2 vault: the tokens are printed once; they are not stored anywhere you can read them back");
+    }
+    print(&value);
+    Ok(code(status))
 }
 
 fn sandbox(admin: &Admin, command: SandboxCommand) -> Result<i32> {
