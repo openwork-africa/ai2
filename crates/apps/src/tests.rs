@@ -98,6 +98,22 @@ fn fast(supervise: bool) -> Settings {
     }
 }
 
+/// Starts an app, and on failure shows what the app printed so a CI log says why.
+async fn started(supervisor: &Supervisor, id: &str) -> crate::model::Shown {
+    match supervisor.start(id).await {
+        Ok(shown) => shown,
+        Err(problem) => {
+            let log = problem
+                .message
+                .rsplit("see ")
+                .next()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .unwrap_or_default();
+            panic!("{problem:?}\n--- app log ---\n{log}");
+        }
+    }
+}
+
 async fn eventually(what: &str, mut test: impl FnMut() -> bool) {
     for _ in 0..200 {
         if test() {
@@ -463,7 +479,7 @@ async fn start_checks_the_api_and_stop_ends_the_process_group() {
         .register(new_app(&home, "Serve", SERVE, port))
         .unwrap();
     let supervisor = Supervisor::with(home.store.clone(), fast(false));
-    let shown = supervisor.start("serve").await.unwrap();
+    let shown = started(&supervisor, "serve").await;
     assert!(shown.status.running);
     assert!(shown.status.started_here);
     assert_eq!(shown.api.state, ApiState::Valid);
@@ -517,7 +533,7 @@ async fn a_supervised_app_streams_its_pipes_into_the_ring_and_the_file() {
     home.store.register(app).unwrap();
     let supervisor = Supervisor::with(home.store.clone(), fast(true));
     let mut events = supervisor.events();
-    supervisor.start("piped").await.unwrap();
+    started(&supervisor, "piped").await;
     eventually("both streams", || {
         let lines = supervisor.replay("piped", None);
         lines
@@ -559,7 +575,7 @@ async fn on_failure_restarts_with_backoff_then_gives_up() {
     app.restart = Some(Restart::OnFailure);
     home.store.register(app).unwrap();
     let supervisor = Supervisor::with(home.store.clone(), fast(true));
-    supervisor.start("crash").await.unwrap();
+    started(&supervisor, "crash").await;
     let mut status = supervisor.status("crash").await.unwrap();
     for _ in 0..200 {
         if status.crashed {
