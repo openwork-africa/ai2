@@ -1,6 +1,6 @@
 use crate::cli::{default_out, providers_file, state_dir, Build, Subcommand};
 use crate::model::{Asking, Model};
-use ::agents::{Agents, Ask, Enhancer, Review, Reviewed};
+use ::agents::{AgentStore, Agents, Ask, Enhancer, LocalStore, Review, Reviewed};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::ArgMatches;
 use std::io::{BufRead, BufReader, Read};
@@ -42,12 +42,20 @@ impl Subcommand for RunSubcommand {
 }
 
 pub fn local(build: Build) -> Agents {
-    let home = state_dir(build.name);
+    let store = LocalStore::new(&state_dir(build.name));
+    with_store(build, Arc::new(store), ::harness::Registry::public)
+}
+
+pub fn with_store(
+    build: Build,
+    store: Arc<dyn AgentStore>,
+    registry: impl Fn() -> ::harness::Registry + Send + Sync + 'static,
+) -> Agents {
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
     let path = ::harness::state::workspace_path(&user, &std::env::var("PATH").unwrap_or_default());
-    let agents = Agents::local(&home, ::harness::Registry::public)
+    let agents = Agents::new(store, registry, &state_dir(build.name))
         .with_path(path)
         .with_enhancer(enhancer(build));
     match std::env::current_exe() {
