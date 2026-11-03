@@ -219,7 +219,7 @@ check "outside call waits in the approval queue" test -n "$waiting"
 
 say "== container sandbox (while the outside call waits)"
 (cd "$repo" && AI2_E2E_SOCKET="$box_socket" AI2_E2E_TOKEN="$token" AI2_E2E_PATH=/example/example.com/ AI2_E2E_CONTAINER="$container_name" \
-	cargo test --quiet -p setup -- --ignored --exact sandbox::tests::a_vault_gateway_answers_from_inside_an_apple_container --nocapture) >"$T/container.txt" 2>&1
+	cargo test --quiet -p vault -- --ignored --exact sandbox::tests::a_vault_gateway_answers_from_inside_an_apple_container --nocapture) >"$T/container.txt" 2>&1
 container_rc=$?
 say "$(grep -E '^HTTP/|test result' "$T/container.txt")"
 check "container: gateway call passes" test $container_rc -eq 0

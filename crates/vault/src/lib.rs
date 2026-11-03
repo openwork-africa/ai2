@@ -13,6 +13,7 @@ mod inject;
 mod migrate;
 mod openapi;
 mod policy;
+pub mod sandbox;
 mod scrub;
 mod skill;
 mod store;
@@ -27,4 +28,7 @@ pub use cli::{
     command, command_with, default_paths, exit, outcome, Options, Outcome, Serve, ServeHook,
 };
 pub use daemon::{start, Config, Resolver, Running};
+pub const NOT_SAFE: &str =
+    "Not safe: an agent outside a container can read anything you can. Docker support is coming soon.";
+
 pub use vet::{KeyInfo, NoVetter, Proposal, Verdict, Vetter, Vetting, PROPOSE_SYSTEM, VET_SYSTEM};

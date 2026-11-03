@@ -15,6 +15,7 @@ keys = { path = "../keys", version = "0.1.0" }
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+vault = { path = "../vault" }
 zeroize.workspace = true
 
 [dev-dependencies]

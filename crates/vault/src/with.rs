@@ -175,7 +175,7 @@ fn place(admin: &Admin, with: &With, machine: &dyn Machine) -> Result<Result<Pla
         return Ok(Ok(Place::Named(name.clone())));
     }
     if !machine.containers() {
-        say(setup::NOT_SAFE);
+        say(crate::NOT_SAFE);
         return Ok(host(admin)?.map(|()| Place::Named(HOST.into())));
     }
     let name = format!("with-{}", random_id()?);
@@ -310,7 +310,7 @@ fn on_host(with: &With, endpoint: &str) -> Command {
     let mut command = Command::new(&with.command[0]);
     command
         .args(&with.command[1..])
-        .env(setup::sandbox::ENDPOINT_ENV, endpoint);
+        .env(crate::sandbox::ENDPOINT_ENV, endpoint);
     command
 }
 
@@ -331,7 +331,7 @@ pub fn in_container(
     command
         .args(["run", "--rm", "--name", name, "--interactive"])
         .args(terminal.then_some("--tty"))
-        .args(setup::sandbox::attach(socket)?)
+        .args(crate::sandbox::attach(socket)?)
         .args(["--volume", &format!("{shown}:{WORK}")])
         .args(["--workdir", WORK, "--env", TOKEN_ENV, &with.image])
         .args(&with.command);

@@ -2472,6 +2472,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "vault",
  "zeroize",
 ]
 
@@ -3186,7 +3187,6 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
- "setup",
  "sha2",
  "tempfile",
  "ureq",

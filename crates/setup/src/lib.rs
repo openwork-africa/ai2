@@ -3,7 +3,6 @@ pub mod files;
 pub mod host;
 pub mod info;
 pub mod runner;
-pub mod sandbox;
 pub mod steps;
 #[cfg(test)]
 mod tests;
@@ -18,8 +17,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
-pub const NOT_SAFE: &str =
-    "Not safe: an agent outside a container can read anything you can. Docker support is coming soon.";
+pub use vault::{sandbox, NOT_SAFE};
 
 #[derive(Clone, Debug)]
 pub struct Options {
