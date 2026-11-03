@@ -19,14 +19,17 @@ export function LogLineText({ line, className }: { line: LogLine; className?: st
   );
 }
 
-export function LogView({ lines, className }: { lines: LogLine[]; className?: string }) {
+export function LogView({ lines, className, fit = true }: { lines: LogLine[]; className?: string; fit?: boolean }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const viewport = end.current?.closest('[data-slot="scroll-area-viewport"]');
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [lines.length]);
   return (
-    <ScrollArea className={cn("h-56 rounded-xl bg-fill-subtle ring-1 ring-border", className)}>
+    <ScrollArea
+      className={cn("rounded-xl bg-fill-subtle ring-1 ring-border", className)}
+      style={fit ? { height: Math.min(224, 22 + Math.max(lines.length, 1) * 20) } : undefined}
+    >
       <div className="flex flex-col px-3 py-2.5">
         {lines.length === 0 && <span className="text-xs text-muted-foreground">{stepText.noLog}</span>}
         {lines.map((line, index) => (

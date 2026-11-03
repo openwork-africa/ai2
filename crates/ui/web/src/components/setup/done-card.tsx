@@ -66,10 +66,10 @@ export function DoneCard({
             )}
           </div>
           <p className="text-[0.8125rem] leading-5 text-muted-foreground">{line}</p>
-          {kind === "stopped" && (failed?.error || state.error) && (
-            <p className="mt-1 text-[0.8125rem] leading-5 font-medium text-destructive">{failed?.error ?? state.error}</p>
+          {kind === "stopped" && !failed && state.error && (
+            <p className="mt-1 text-[0.8125rem] leading-5 font-medium text-destructive">{state.error}</p>
           )}
-          {kind === "stopped" && <p className="text-xs text-muted-foreground">{failureHint}</p>}
+          {kind === "stopped" && !failed && <p className="text-xs text-muted-foreground">{failureHint}</p>}
         </div>
       </div>
 
@@ -94,7 +94,7 @@ export function DoneCard({
       )}
 
       <div className="flex flex-wrap justify-end gap-2">
-        {kind === "stopped" && (
+        {kind === "stopped" && !failed && (
           <Button size="lg" variant="outline" onClick={() => onRun(false)}>
             <RotateCcw />
             {stepText.tryAgain}

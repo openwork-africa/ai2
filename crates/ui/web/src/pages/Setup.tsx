@@ -253,7 +253,7 @@ export default function Setup() {
             <SheetDescription>{fullLogWhy}</SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 px-6 pb-6">
-            <LogView lines={allLines} className="h-full w-full" />
+            <LogView lines={allLines} fit={false} className="h-full w-full" />
           </div>
         </SheetContent>
       </Sheet>
