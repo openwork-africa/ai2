@@ -1,4 +1,5 @@
 mod admin;
+mod apps;
 mod bundle;
 mod harnesses;
 mod nonce;

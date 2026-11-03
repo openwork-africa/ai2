@@ -37,7 +37,6 @@ impl Context {
     }
 }
 
-
 #[derive(Default)]
 pub struct Found {
     pub exploits: Vec<Exploit>,

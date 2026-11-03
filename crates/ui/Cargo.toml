@@ -7,7 +7,9 @@ description = "ai2 in the browser: a local server on 127.0.0.1 for setup, apps, 
 
 [dependencies]
 anyhow.workspace = true
-axum = "0.8"
+apps = { path = "../apps" }
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
 clap.workspace = true
 futures-util = { version = "0.3", default-features = false }
 harness = { path = "../harness" }
