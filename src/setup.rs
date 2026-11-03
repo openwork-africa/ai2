@@ -20,15 +20,13 @@ impl Subcommand for SetupSubcommand {
         let options = setup::Options::new(bin, crate::cli::state_dir(self.name));
         match setup::outcome(matches, &options)? {
             setup::Outcome::Done(ok) => Ok(exit_code(ok)),
-            setup::Outcome::Ui { check } => {
-                in_the_browser(self.name, options, check).map(exit_code)
-            }
+            setup::Outcome::Ui => in_the_browser(self.name, options).map(exit_code),
         }
     }
 }
 
 #[cfg(feature = "ui")]
-fn in_the_browser(name: &'static str, options: setup::Options, check: bool) -> Result<bool> {
+fn in_the_browser(name: &'static str, options: setup::Options) -> Result<bool> {
     let port = crate::ui::port();
     crate::ui::inject(crate::cli::Build {
         name,
@@ -37,18 +35,14 @@ fn in_the_browser(name: &'static str, options: setup::Options, check: bool) -> R
     ui::setup::run(
         &crate::ui::options(name),
         options,
-        ui::setup::Launch {
-            port,
-            open: true,
-            check,
-        },
+        ui::setup::Launch { port, open: true },
     )
 }
 
 #[cfg(not(feature = "ui"))]
-fn in_the_browser(_name: &'static str, options: setup::Options, check: bool) -> Result<bool> {
+fn in_the_browser(_name: &'static str, options: setup::Options) -> Result<bool> {
     eprintln!("{}", setup::NO_UI);
-    setup::headless(&options, check)
+    setup::headless(&options, false)
 }
 
 pub fn rows(name: &'static str) -> Vec<Row> {

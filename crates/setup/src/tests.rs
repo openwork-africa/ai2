@@ -479,27 +479,23 @@ fn a_running_service_is_restarted_after_its_unit_changes() {
 }
 
 #[test]
-fn the_setup_command_takes_check() {
+fn the_setup_command_takes_headless_and_no_check() {
     let matches = crate::command()
-        .try_get_matches_from(["setup", "--check"])
+        .try_get_matches_from(["setup", "--headless"])
         .unwrap();
-    assert!(matches.get_flag("check"));
-    assert!(!matches.get_flag("headless"));
+    assert!(matches.get_flag("headless"));
     assert_eq!(crate::command().get_name(), "setup");
-    let matches = crate::command()
-        .try_get_matches_from(["setup", "--headless", "--check"])
-        .unwrap();
-    assert!(matches.get_flag("headless") && matches.get_flag("check"));
+    assert!(crate::command()
+        .try_get_matches_from(["setup", "--check"])
+        .is_err());
 }
 
 #[test]
 fn without_headless_setup_asks_the_caller_for_the_page_and_runs_nothing() {
     use crate::{outcome, Outcome};
     let options = Options::new("/nowhere/ai2", "/nowhere/.ai2");
-    for (args, check) in [(&["setup"][..], false), (&["setup", "--check"][..], true)] {
-        let matches = crate::command().try_get_matches_from(args).unwrap();
-        assert_eq!(outcome(&matches, &options).unwrap(), Outcome::Ui { check });
-    }
+    let matches = crate::command().try_get_matches_from(["setup"]).unwrap();
+    assert_eq!(outcome(&matches, &options).unwrap(), Outcome::Ui);
 }
 
 #[test]
@@ -825,8 +821,6 @@ fn the_admin_socket_client_lists_and_adds_sandboxes() {
 #[ignore]
 fn this_machine_checks_without_changing_anything() {
     let options = Options::new("/usr/local/bin/ai2", "/tmp/ai2-setup-check");
-    let matches = crate::command()
-        .try_get_matches_from(["setup", "--headless", "--check"])
-        .unwrap();
-    crate::run(&matches, &options).unwrap();
+    let (_, report) = crate::setup(&options, true).unwrap();
+    println!("{report}");
 }

@@ -106,28 +106,33 @@ for k in sys.argv[1].split("."):
     d=d[int(k)] if isinstance(d,list) else d.get(k) if isinstance(d,dict) else None
 print("" if d is None else (json.dumps(d) if isinstance(d,(dict,list,bool)) else d))' "$1"; }
 
-say "== setup --check"
-"$bin" setup --check >"$T/check1.json"
+state() { python3 -c 'import json,sys
+print(next((r["state"] for r in json.load(sys.stdin) if r["check"]==sys.argv[1]), ""))' "$1"; }
+
+say "== doctor before setup"
+"$bin" doctor --json >"$T/check1.json"
 say "$(cat "$T/check1.json")"
-check "check: containers ready" test "$(j steps.containers.status <"$T/check1.json")" = ready
-check "check: master key missing" test "$(j steps.master-key.status <"$T/check1.json")" = missing
-check "check: daemon missing" test "$(j steps.daemon.status <"$T/check1.json")" = missing
-if [ "$(j steps.containers.status <"$T/check1.json")" != ready ]; then
+check "doctor: containers ok" test "$(state containers <"$T/check1.json")" = ok
+check "doctor: master key missing" test "$(state master-key <"$T/check1.json")" = fail
+check "doctor: daemon missing" test "$(state daemon <"$T/check1.json")" = fail
+if [ "$(state containers <"$T/check1.json")" != ok ]; then
 	say "containers is not ready, so ai2 setup would install or start Apple container; stopping"
 	exit 1
 fi
 
 say "== setup"
-"$bin" setup >"$T/setup.json"
+"$bin" setup --headless >"$T/setup.json"
 say "$(cat "$T/setup.json")"
 check "setup: ok" test "$(j ok <"$T/setup.json")" = true
 for step in containers master-key presence daemon; do
 	check "setup: $step ready" test "$(j "steps.$step.status" <"$T/setup.json")" = ready
 done
 
-"$bin" setup --check >"$T/check2.json"
+"$bin" doctor --json >"$T/check2.json"
 say "$(cat "$T/check2.json")"
-check "check after setup: ok" test "$(j ok <"$T/check2.json")" = true
+for step in containers master-key presence daemon admin-socket; do
+	check "doctor after setup: $step ok" test "$(state "$step" <"$T/check2.json")" = ok
+done
 
 check "master key in the test keychain" security find-generic-password -s "$service" -a master "$kc" >/dev/null
 check "login keychain items for $service unchanged" test "$(login_item)" = "$login_before"

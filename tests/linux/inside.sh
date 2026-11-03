@@ -29,15 +29,15 @@ build() {
 
 setup() {
     cd /home/dev || exit 1
-    "$AI2" setup --check > "$OUT/check1.json"
+    "$AI2" doctor --json > "$OUT/check1.json"
     echo "before: $(cat "$OUT/check1.json")"
-    expect_ok "ai2 setup" answer sh -c "$AI2 setup > $OUT/setup.json"
+    expect_ok "ai2 setup" answer sh -c "$AI2 setup --headless > $OUT/setup.json"
     echo "setup: $(cat "$OUT/setup.json")"
-    "$AI2" setup --check > "$OUT/check2.json"
+    expect_ok "setup is ok" grep -q '"ok":true' "$OUT/setup.json"
+    "$AI2" doctor --json > "$OUT/check2.json"
     echo "after: $(cat "$OUT/check2.json")"
-    expect_ok "setup --check is ok after setup" grep -q '"ok":true' "$OUT/check2.json"
-    for step in containers master-key presence daemon; do
-        expect_ok "step $step ready" grep -q "\"$step\":{\"status\":\"ready\"" "$OUT/check2.json"
+    for step in containers master-key presence daemon admin-socket; do
+        expect_ok "doctor: $step ok" grep -q "\"check\":\"$step\",\"state\":\"ok\"" "$OUT/check2.json"
     done
     expect_ok "master.cred exists" sudo test -s /etc/ai2-vault/master.cred
     expect_ok "master.cred decrypts to 32 bytes" test "$(sudo systemd-creds decrypt --name=master /etc/ai2-vault/master.cred - | wc -c)" = 32

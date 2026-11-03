@@ -102,7 +102,6 @@ pub fn arm(state: &UiState, engine: Engine, check: bool) -> Arc<Bridge> {
 pub struct Launch {
     pub port: u16,
     pub open: bool,
-    pub check: bool,
 }
 
 pub fn run(ui: &crate::Options, setup: ::setup::Options, launch: Launch) -> Result<bool> {
@@ -112,7 +111,7 @@ pub fn run(ui: &crate::Options, setup: ::setup::Options, launch: Launch) -> Resu
         .context("starting the ui runtime")?;
     runtime.block_on(async move {
         let server = Server::bind(launch.port, ui).await?;
-        serve(server, Engine::system(setup), launch.check, launch.open).await
+        serve(server, Engine::system(setup), false, launch.open).await
     })
 }
 

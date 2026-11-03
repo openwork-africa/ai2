@@ -190,12 +190,6 @@ pub fn command() -> clap::Command {
     clap::Command::new("setup")
         .about("Sets this machine up for the vault: containers, the master key, a human check and the daemon")
         .arg(
-            clap::Arg::new("check")
-                .long("check")
-                .action(clap::ArgAction::SetTrue)
-                .help("Only report each step's state; change nothing"),
-        )
-        .arg(
             clap::Arg::new("headless")
                 .long("headless")
                 .action(clap::ArgAction::SetTrue)
@@ -209,15 +203,14 @@ pub const NO_UI: &str =
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Done(bool),
-    Ui { check: bool },
+    Ui,
 }
 
 pub fn outcome(matches: &clap::ArgMatches, opts: &Options) -> Result<Outcome> {
-    let check = matches.get_flag("check");
     if !matches.get_flag("headless") {
-        return Ok(Outcome::Ui { check });
+        return Ok(Outcome::Ui);
     }
-    headless(opts, check).map(Outcome::Done)
+    headless(opts, false).map(Outcome::Done)
 }
 
 pub fn headless(opts: &Options, check_only: bool) -> Result<bool> {
@@ -229,9 +222,9 @@ pub fn headless(opts: &Options, check_only: bool) -> Result<bool> {
 pub fn run(matches: &clap::ArgMatches, opts: &Options) -> Result<bool> {
     match outcome(matches, opts)? {
         Outcome::Done(ok) => Ok(ok),
-        Outcome::Ui { check } => {
+        Outcome::Ui => {
             eprintln!("{NO_UI}");
-            headless(opts, check)
+            headless(opts, false)
         }
     }
 }
