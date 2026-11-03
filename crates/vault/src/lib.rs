@@ -1,5 +1,6 @@
 mod admin;
 pub mod api;
+pub mod app;
 mod approvals;
 mod changes;
 pub mod cli;

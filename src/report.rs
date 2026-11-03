@@ -11,7 +11,7 @@ pub struct Review {
     pub folder: String,
     pub objective: String,
     pub generated_at: String,
-    pub harness: Option<&'static str>,
+    pub harness: Option<String>,
     pub ratings: Vec<Card>,
     pub technologies: Vec<Technology>,
     pub exploits: Vec<Exploit>,

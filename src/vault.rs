@@ -1,9 +1,10 @@
 use crate::cli::{providers_file, Subcommand};
 use crate::doctor::Row;
-use crate::model::Model;
+use crate::model::{Gateway, Model, Sent};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::ArgMatches;
 use serde_json::Value;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +21,99 @@ impl Vetter for ModelVetter {
     }
     fn vet(&self, call: &Vetting) -> Result<Verdict> {
         self.0.ask::<Verdict>(vault::VET_SYSTEM, &call.input())
+    }
+}
+
+pub fn gateway(home: PathBuf) -> Gateway {
+    Arc::new(move |sent: &Sent| {
+        let token = vault::app::load(&home, sent.key).ok_or_else(|| {
+            anyhow!(
+                "there is no vault pass for {}: add the provider again on the Tools page",
+                sent.key
+            )
+        })?;
+        let body = serde_json::to_vec(sent.body)?;
+        let mut headers: Vec<(&str, &str)> = sent
+            .headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        headers.push(("Content-Type", "application/json"));
+        let reply = token.call(
+            sent.key,
+            &vault::app::Call {
+                method: "POST",
+                url: sent.url,
+                headers: &headers,
+                body: &body,
+                wait: sent.timeout,
+            },
+        )?;
+        Ok((
+            reply.status,
+            serde_json::from_slice(&reply.body).unwrap_or(Value::Null),
+        ))
+    })
+}
+
+#[cfg(feature = "harness")]
+pub struct HarnessVetter {
+    pub setup: ::harness::Setup,
+    pub home: PathBuf,
+    pub model: Option<String>,
+    pub limit: Duration,
+}
+
+#[cfg(feature = "harness")]
+pub const ANSWER_LINE: &str = "Write the JSON object alone to this file:";
+
+#[cfg(feature = "harness")]
+impl HarnessVetter {
+    fn ask<T: serde::de::DeserializeOwned>(&self, system: &str, input: &str) -> Result<T> {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::{Command, Stdio};
+        let dir = tempfile::Builder::new()
+            .prefix("ai2-vet-")
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()?;
+        let out = dir.path().join("answer.json");
+        let prompt = format!("{system}\n\n{input}\n\n{ANSWER_LINE}\n{}", out.display());
+        let line = ::harness::task_line(
+            &self.setup,
+            &prompt,
+            &dir.path().display().to_string(),
+            self.model.as_deref(),
+            None,
+        );
+        let path = ::harness::state::workspace_path(
+            &self.home,
+            &std::env::var("PATH").unwrap_or_default(),
+        );
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(line)
+            .env("PATH", path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("starting {}", self.setup.label))?;
+        crate::rrf::wait(&mut child, &self.setup.label, self.limit)?;
+        let text = std::fs::read_to_string(&out)
+            .with_context(|| format!("{} gave no answer", self.setup.label))?;
+        crate::model::parse(&text)
+    }
+}
+
+#[cfg(feature = "harness")]
+impl Vetter for HarnessVetter {
+    fn propose(&self, key: &KeyInfo) -> Result<Vec<String>> {
+        Ok(self
+            .ask::<Proposal>(vault::PROPOSE_SYSTEM, &key.input())?
+            .prefixes)
+    }
+    fn vet(&self, call: &Vetting) -> Result<Verdict> {
+        self.ask::<Verdict>(vault::VET_SYSTEM, &call.input())
     }
 }
 
@@ -171,9 +265,15 @@ fn run_serve(name: &str, serve: Serve) -> Result<()> {
     config
         .owners
         .extend(owners(std::env::var("AI2_VAULT_OWNERS").ok().as_deref()));
+    let explicit = serve.providers.is_some() || serve.model.is_some();
+    let chosen = vetting(name, explicit);
     let file = providers_file(name, serve.providers);
-    let model = serve.model;
+    let model = serve.model.or(chosen.model_name);
+    let harness = chosen.harness;
     vault::start(config, platform, move |resolver: Resolver| {
+        if let Some(harness) = harness {
+            return harness;
+        }
         let Some(file) = file else {
             eprintln!("{name} vault: no providers file, so calls that need vetting are refused");
             return Box::new(NoVetter);
@@ -190,6 +290,65 @@ fn run_serve(name: &str, serve: Serve) -> Result<()> {
     })?
     .wait();
     Ok(())
+}
+
+#[derive(Default)]
+struct VetterChoice {
+    model_name: Option<String>,
+    harness: Option<Box<dyn Vetter>>,
+}
+
+#[cfg(feature = "harness")]
+const VET_LIMIT: Duration = Duration::from_secs(300);
+
+#[cfg(feature = "harness")]
+fn vetting(name: &str, explicit: bool) -> VetterChoice {
+    use ::harness::settings::{model_name, Settings, VaultUse, MODEL};
+    let home = crate::cli::state_dir(name);
+    let chosen = match VaultUse::load(&home) {
+        Ok(Some(chosen)) => chosen,
+        Ok(None) => return VetterChoice::default(),
+        Err(error) => {
+            eprintln!("{name} vault: the vault settings were left out: {error:#}");
+            return VetterChoice::default();
+        }
+    };
+    if explicit || chosen.vetter == MODEL {
+        return VetterChoice {
+            model_name: model_name(chosen.provider.as_deref(), chosen.model.as_deref()),
+            harness: None,
+        };
+    }
+    let registry = ::harness::Registry::public();
+    let Some(setup) = registry
+        .agent(&chosen.vetter)
+        .filter(|s| s.headless().is_some())
+    else {
+        eprintln!(
+            "{name} vault: there is no harness called {}, so calls that need vetting are refused",
+            chosen.vetter
+        );
+        return VetterChoice {
+            model_name: None,
+            harness: Some(Box::new(NoVetter)),
+        };
+    };
+    VetterChoice {
+        model_name: None,
+        harness: Some(Box::new(HarnessVetter {
+            setup: setup.clone(),
+            home: std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default(),
+            model: chosen.model,
+            limit: VET_LIMIT,
+        })),
+    }
+}
+
+#[cfg(not(feature = "harness"))]
+fn vetting(_name: &str, _explicit: bool) -> VetterChoice {
+    VetterChoice::default()
 }
 
 fn owners(listed: Option<&str>) -> Vec<u32> {
@@ -346,6 +505,138 @@ mod tests {
             vetting_row("a/one", &url, Err(anyhow!("refused"))).state,
             State::Fail
         );
+    }
+
+    #[cfg(feature = "harness")]
+    fn fake_harness(dir: &std::path::Path, answer: &str) -> HarnessVetter {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("fake-harness");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" > \"$(dirname \"$0\")/asked\"\nout=$(printf '%s\\n' \"$1\" | tail -n 1)\nprintf '%s' '{answer}' > \"$out\"\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let run = script.display().to_string();
+        HarnessVetter {
+            setup: ::harness::Setup {
+                id: "fake".into(),
+                label: "Fake".into(),
+                command: run.clone(),
+                agent: Some(::harness::Agent {
+                    models: Vec::new(),
+                    headless: Some(::harness::list::headless(&run, "")),
+                }),
+                ..::harness::Setup::default()
+            },
+            home: dir.to_path_buf(),
+            model: None,
+            limit: Duration::from_secs(20),
+        }
+    }
+
+    #[cfg(feature = "harness")]
+    fn a_call() -> Vetting {
+        Vetting {
+            key: KeyInfo {
+                name: "openai".into(),
+                description: "OpenAI".into(),
+                approved_urls: vec!["https://api.openai.com/".into()],
+            },
+            intent: "list models".into(),
+            method: "GET".into(),
+            url: "https://api.openai.com/v1/models".into(),
+            request: "listing".into(),
+        }
+    }
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn a_harness_vetter_asks_with_the_vetting_rules_and_reads_its_answer() {
+        let dir = tempfile::tempdir().unwrap();
+        let vetter = fake_harness(
+            dir.path(),
+            r#"{"allow": true, "prefix": "https://api.openai.com/v1/", "why": "fits"}"#,
+        );
+        let verdict = vetter.vet(&a_call()).unwrap();
+        assert!(verdict.allow);
+        assert_eq!(verdict.prefix, "https://api.openai.com/v1/");
+        let asked = std::fs::read_to_string(dir.path().join("asked")).unwrap();
+        assert!(asked.starts_with(vault::VET_SYSTEM));
+        assert!(asked.contains("untrusted_request_from_the_agent"));
+        assert!(asked.contains(ANSWER_LINE));
+        let proposer = fake_harness(
+            dir.path(),
+            r#"{"prefixes": ["https://api.openai.com/v1/"]}"#,
+        );
+        let info = a_call().key;
+        assert_eq!(
+            proposer.propose(&info).unwrap(),
+            ["https://api.openai.com/v1/"]
+        );
+    }
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn a_harness_vetter_refuses_when_the_answer_is_not_a_verdict() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(fake_harness(dir.path(), "no").vet(&a_call()).is_err());
+        assert!(fake_harness(dir.path(), r#"{"why": "no allow"}"#)
+            .vet(&a_call())
+            .is_err());
+    }
+
+    #[test]
+    fn a_vault_key_goes_through_the_gateway_with_the_saved_pass() {
+        let home = tempfile::tempdir().unwrap();
+        let socket = home.path().join("gw.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let seen = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = vault::http::read_request(&mut stream).unwrap();
+            vault::http::Response::json(
+                200,
+                &json!({ "choices": [{ "message": { "content": "{\"ok\": 1}" } }] }),
+            )
+            .write_to(&mut stream)
+            .unwrap();
+            request
+        });
+        vault::app::save(
+            home.path(),
+            "openai",
+            &vault::app::AppToken {
+                id: "t".into(),
+                token: "vt_pass".into(),
+                revoke: "r".into(),
+                socket,
+            },
+        )
+        .unwrap();
+        let file = home.path().join("providers.json");
+        std::fs::write(
+            &file,
+            r#"{"providers":{"openai":{"api":"openai-completions","baseUrl":"https://api.openai.com/v1","apiKey":"vault:openai","models":[{"id":"gpt-x"}]}}}"#,
+        )
+        .unwrap();
+        let model = Model::load(&file, None)
+            .unwrap()
+            .with_gateway(gateway(home.path().to_path_buf()));
+        let text = model.text("s", "i", &crate::model::ASKING).unwrap();
+        assert_eq!(text, "{\"ok\": 1}");
+        let request = seen.join().unwrap();
+        assert_eq!(request.target, "/openai/api.openai.com/v1/chat/completions");
+        assert_eq!(request.header("authorization"), Some("Bearer vt_pass"));
+        let missing = Model::load(&file, None)
+            .unwrap()
+            .with_gateway(gateway(home.path().join("elsewhere")));
+        assert!(format!(
+            "{:#}",
+            missing.text("s", "i", &crate::model::ASKING).unwrap_err()
+        )
+        .contains("Tools page"));
     }
 
     #[test]
