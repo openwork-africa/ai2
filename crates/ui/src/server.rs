@@ -21,10 +21,9 @@ impl Server {
         } else {
             nonce::load(&options.home)?
         };
-        Ok(Self {
-            listener,
-            state: Arc::new(State::new(bound, nonce, options)),
-        })
+        let state = Arc::new(State::new(bound, nonce, options)?);
+        state.apps.adopt().await?;
+        Ok(Self { listener, state })
     }
 
     pub fn state(&self) -> Shared {

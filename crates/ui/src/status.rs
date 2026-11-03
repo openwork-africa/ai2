@@ -8,7 +8,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 pub fn features() -> Vec<&'static str> {
-    vec!["vault"]
+    vec!["apps", "vault"]
 }
 
 #[derive(Debug, Serialize, ToSchema)]
