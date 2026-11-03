@@ -23,6 +23,7 @@ pub fn api() -> OpenApiRouter<Shared> {
         .merge(apps::routes())
         .merge(harnesses::routes())
         .merge(reviews::routes())
+        .merge(crate::settings::routes())
 }
 
 pub fn router(state: Shared) -> (Router, OpenApi) {

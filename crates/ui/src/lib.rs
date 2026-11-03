@@ -10,6 +10,7 @@ pub mod reviews;
 mod routes;
 mod security;
 mod server;
+mod settings;
 pub mod setup;
 mod state;
 mod status;
