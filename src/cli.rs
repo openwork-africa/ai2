@@ -4,9 +4,7 @@ use crate::step::{Context, Found, Step};
 use crate::steps::{self, Msr};
 use crate::{model, scan};
 use anyhow::{bail, Context as _, Result};
-use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand as _};
-use harness::cli::{print, Context as HarnessContext, HarnessCommand};
-use harness::Registry;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
@@ -31,36 +29,8 @@ impl Build {
 pub trait Subcommand {
     fn command(&self) -> clap::Command;
     fn run(&self, matches: &ArgMatches) -> Result<ExitCode>;
-}
-
-pub struct HarnessSubcommand {
-    pub registry: Registry,
-    pub state: PathBuf,
-}
-impl HarnessSubcommand {
-    pub fn new(registry: Registry, state: PathBuf) -> Self {
-        Self { registry, state }
-    }
-}
-impl Subcommand for HarnessSubcommand {
-    fn command(&self) -> clap::Command {
-        harness_command()
-    }
-    fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
-        run_harness(self.registry.clone_for_run(), self.state.clone(), matches).map(exit_code)
-    }
-}
-
-trait RegistryRun {
-    fn clone_for_run(&self) -> Registry;
-}
-impl RegistryRun for Registry {
-    fn clone_for_run(&self) -> Registry {
-        let mut registry = Registry::default();
-        for setup in self.all() {
-            registry.put(setup.clone(), None);
-        }
-        registry
+    fn usage_exit(&self) -> Option<u8> {
+        None
     }
 }
 
@@ -168,15 +138,25 @@ pub fn exit_code(ok: bool) -> ExitCode {
     }
 }
 
+fn find<'a>(subcommands: &'a [Box<dyn Subcommand>], name: &str) -> Option<&'a dyn Subcommand> {
+    subcommands
+        .iter()
+        .find(|s| s.command().get_name() == name)
+        .map(|s| s.as_ref())
+}
+
 fn dispatch(subcommands: &[Box<dyn Subcommand>], name: &str, matches: &ArgMatches) -> ExitCode {
-    let Some(sub) = subcommands.iter().find(|s| s.command().get_name() == name) else {
-        print(&serde_json::json!({ "error": format!("unknown subcommand {name}") }));
+    let Some(sub) = find(subcommands, name) else {
+        println!(
+            "{}",
+            serde_json::json!({ "error": format!("unknown subcommand {name}") })
+        );
         return ExitCode::FAILURE;
     };
     match sub.run(matches) {
         Ok(code) => code,
         Err(error) => {
-            print(&serde_json::json!({ "error": error.to_string() }));
+            println!("{}", serde_json::json!({ "error": error.to_string() }));
             ExitCode::FAILURE
         }
     }
@@ -208,12 +188,14 @@ fn execute(
     {
         Ok(args) => args,
         Err(error) => {
-            let vault_usage =
-                error.use_stderr() && std::env::args().nth(1).as_deref() == Some("vault");
+            let usage = std::env::args()
+                .nth(1)
+                .and_then(|name| find(&subcommands, &name)?.usage_exit())
+                .filter(|_| error.use_stderr());
             let _ = error.print();
-            return Ok(match (vault_usage, error.exit_code()) {
-                (true, _) => ExitCode::from(vault::exit::USAGE as u8),
-                (false, code) => ExitCode::from(code as u8),
+            return Ok(match usage {
+                Some(code) => ExitCode::from(code),
+                None => ExitCode::from(error.exit_code() as u8),
             });
         }
     };
@@ -375,7 +357,7 @@ fn make_review(
     Review {
         version: build.version,
         folder: folder.display().to_string(),
-        generated_at: vault::time::stamp(),
+        generated_at: crate::time::stamp(),
         harness,
         technologies: steps::technologies(&ctx.spec, &risks),
         ratings: ratings.to_vec(),
@@ -406,29 +388,6 @@ pub fn write(review: &Review, out: &Path, dashboard: bool) -> Result<PathBuf> {
     }
     std::fs::write(out.join("report.html"), report::html(review))?;
     Ok(out.join("report.html"))
-}
-
-pub fn harness_command() -> clap::Command {
-    HarnessCommand::augment_subcommands(
-        clap::Command::new("harness")
-            .about(
-                "Installs coding agents, signs in to them and prints their headless command lines",
-            )
-            .subcommand_required(true),
-    )
-}
-
-pub fn run_harness(registry: Registry, state: PathBuf, matches: &ArgMatches) -> Result<bool> {
-    let command = HarnessCommand::from_arg_matches(matches)?;
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default();
-    (HarnessContext {
-        registry,
-        home,
-        state,
-    })
-    .run(command)
 }
 
 pub fn providers_file(name: &str, given: Option<PathBuf>) -> Option<PathBuf> {

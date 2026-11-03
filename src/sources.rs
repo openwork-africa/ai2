@@ -240,7 +240,7 @@ pub fn filter_kev(feed: &Value, spec: &Spec, since: &str) -> Vec<Advisory> {
 }
 
 fn date_days_ago(days: u64) -> String {
-    vault::time::rfc3339((vault::time::now() / 86_400).saturating_sub(days) * 86_400)
+    crate::time::rfc3339((crate::time::now() / 86_400).saturating_sub(days) * 86_400)
 }
 
 #[cfg(test)]
@@ -329,7 +329,7 @@ mod tests {
     fn dates_compare_as_text() {
         assert_eq!(date_days_ago(0).len(), 20);
         assert_eq!(
-            vault::time::rfc3339(20_759 * 86_400),
+            crate::time::rfc3339(20_759 * 86_400),
             "2026-11-02T00:00:00Z"
         );
         assert!(date_days_ago(7) < date_days_ago(0));
