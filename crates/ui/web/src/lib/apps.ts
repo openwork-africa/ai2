@@ -168,7 +168,7 @@ export type Standing = { tone: "success" | "warning" | "destructive" | "muted"; 
 export const standing = (app: App): Standing => {
   if (app.crashed) return { tone: "destructive", label: "Crashed" };
   if (app.running && app.started_here) return { tone: "success", label: "Running" };
-  if (app.running) return { tone: "success", label: "Running, not started by ai2" };
+  if (app.running) return { tone: "success", label: "Running, started elsewhere" };
   if (app.started_here) return { tone: "warning", label: "Starting" };
   return { tone: "muted", label: "Stopped" };
 };

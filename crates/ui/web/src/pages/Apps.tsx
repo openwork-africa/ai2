@@ -70,7 +70,7 @@ function Tile({ app, onChange, onRemoved, onError }: { app: App; onChange: (app:
       <div className="flex items-center gap-2 border-t px-(--card-spacing) pt-3">
         <Button size="sm" variant={app.running ? "outline" : "default"} onClick={play} disabled={busy !== null}>
           {busy === "play" ? <Spinner /> : app.running ? <ExternalLink /> : <Play />}
-          {app.running ? "Open" : busy === "play" ? "Starting" : "Play"}
+          {app.running ? "Open" : busy === "play" ? "Starting" : "Start"}
         </Button>
         {app.started_here && (
           <Button size="sm" variant="ghost" onClick={stop} disabled={busy !== null}>
@@ -156,8 +156,8 @@ export default function Apps() {
         title="Apps"
         description={
           apps && apps.length > 0
-            ? `Local apps, one click to start. ${running} of ${apps.length} running.`
-            : "Local apps, one click to start."
+            ? `Every app on this machine is one press from running. ${running} of ${apps.length} are up right now.`
+            : "Every app on this machine is one press from running."
         }
         actions={
           <Button asChild>
@@ -179,7 +179,7 @@ export default function Apps() {
       {error && (
         <Alert variant="destructive">
           <TriangleAlert />
-          <AlertTitle>That did not work</AlertTitle>
+          <AlertTitle>That didn't go through</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
           <Button size="icon-xs" variant="ghost" className="absolute top-3 right-3" aria-label="Dismiss" onClick={() => setError(null)}>
             <X />
@@ -195,8 +195,8 @@ export default function Apps() {
             <EmptyMedia variant="icon">
               <LayoutGrid />
             </EmptyMedia>
-            <EmptyTitle>No apps yet</EmptyTitle>
-            <EmptyDescription>Add one, or ask your agent to register the app it just built.</EmptyDescription>
+            <EmptyTitle>The shelf is empty</EmptyTitle>
+            <EmptyDescription>An app is anything on this machine that listens on a port and starts with one command. Add the first one here, or let your agent put the one it just built on the shelf.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 apps register --openapi /openapi.json …</Code>
@@ -218,14 +218,14 @@ export default function Apps() {
                 <Plus className="size-4" />
               </span>
               Add an app
-              <span className="text-xs">or ask your agent: ai2 apps register</span>
+              <span className="text-xs">or let an agent do it: ai2 apps register</span>
             </Link>
           )}
         </div>
       )}
 
       {apps && apps.length > 0 && shown?.length === 0 && (
-        <p className="text-sm text-muted-foreground">No app matches “{filter}”.</p>
+        <p className="text-sm text-muted-foreground">Nothing here answers to “{filter}”.</p>
       )}
     </Page>
   );

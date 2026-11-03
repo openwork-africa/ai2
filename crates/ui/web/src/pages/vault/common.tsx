@@ -11,14 +11,14 @@ import { dequeue, presenceNow, type Queued, useQueue } from "@/hooks/use-vault";
 import { absolute, Cancelled, type Change, changeTarget, host, type PresenceKind, relative } from "@/lib/vault";
 
 const UNCONFIRMED: Record<PresenceKind, string> = {
-  touch_id: "Touch ID was not confirmed, so nothing changed.",
-  polkit: "The system prompt was not confirmed, so nothing changed.",
-  passphrase: "The vault did not accept the passphrase, so nothing changed.",
+  touch_id: "Touch ID didn't go through, so nothing changed.",
+  polkit: "The system prompt wasn't confirmed, so nothing changed.",
+  passphrase: "The vault didn't recognise that passphrase, so nothing changed.",
 };
 
 export const problem = (failure: unknown) => {
   if (failure instanceof ApiError && failure.code === "presence_required") return UNCONFIRMED[presenceNow()];
-  if (failure instanceof ApiError && failure.code === "busy") return "Another vault prompt is open. Answer it first, then try again.";
+  if (failure instanceof ApiError && failure.code === "busy") return "Another vault prompt is already open and wants an answer first.";
   return (failure as Error).message;
 };
 
@@ -197,7 +197,7 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
           setCopied(true);
           window.setTimeout(() => setCopied(false), 1600);
         } catch {
-          toast.create({ title: "Could not copy", description: "Select the text and copy it yourself.", type: "warning" });
+          toast.create({ title: "The clipboard wouldn't take it", description: "Selecting the text and copying still works.", type: "warning" });
         }
       }}
     >

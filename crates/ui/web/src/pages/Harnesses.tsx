@@ -19,10 +19,10 @@ const STATE: Record<HarnessState, { tone: "success" | "warning" | "muted"; label
 };
 
 const signInLine = (harness: Harness) => {
-  if (!harness.can_sign_in) return harness.kind === "agent" ? "Signs in the first time it runs" : "Needs no sign-in";
-  if (harness.asks === "key") return "Signs in with an API key";
-  if (harness.asks === "code") return "Signs in with a code from the browser";
-  return "Signs in through the browser";
+  if (!harness.can_sign_in) return harness.kind === "agent" ? "It signs in the first time it runs" : "No sign-in needed";
+  if (harness.asks === "key") return "It signs in with an API key";
+  if (harness.asks === "code") return "It signs in with a code from the browser";
+  return "It signs in through the browser";
 };
 
 const without = <T,>(all: Record<string, T>, key: string) => {
@@ -57,14 +57,14 @@ function StateBadge({ state }: { state: HarnessState }) {
 }
 
 const standing = (harness: Harness) => {
-  if (!harness.installed) return "Not installed yet";
+  if (!harness.installed) return "Not here yet";
   if (!harness.can_sign_in) return "Installed";
-  return harness.signed_in ? "Signed in" : "Installed, not signed in";
+  return harness.signed_in ? "Signed in" : "Installed, not yet signed in";
 };
 
 function Models({ harness }: { harness: Harness }) {
   if (harness.kind !== "agent") return <p className="text-xs text-muted-foreground">On the PATH of every run.</p>;
-  if (harness.models.length === 0) return <p className="text-xs text-muted-foreground">Uses the model set in its own settings.</p>;
+  if (harness.models.length === 0) return <p className="text-xs text-muted-foreground">It picks its model from its own settings.</p>;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {harness.models.map((model) => (
@@ -299,7 +299,7 @@ export default function Harnesses() {
     <Page className="max-w-6xl">
       <PageHeader
         title="Harnesses"
-        description="The coding agents and tools ai2 installs, signs in to and runs headless. Installs and sign-ins run on this machine, under your user."
+        description="The coding agents and tools ai squared installs, signs in to and keeps in view while they run. Everything here happens on this machine, as you."
         actions={harnesses && <Summary harnesses={harnesses} />}
       />
       {failed && !harnesses ? (
@@ -308,7 +308,7 @@ export default function Harnesses() {
             <EmptyMedia variant="icon">
               <TriangleAlert />
             </EmptyMedia>
-            <EmptyTitle>The harness list did not load</EmptyTitle>
+            <EmptyTitle>The harness list wouldn't load</EmptyTitle>
             <EmptyDescription>{failed}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -326,8 +326,8 @@ export default function Harnesses() {
             <EmptyMedia variant="icon">
               <Bot />
             </EmptyMedia>
-            <EmptyTitle>No harnesses in this build</EmptyTitle>
-            <EmptyDescription>This ai2 was built without a harness registry.</EmptyDescription>
+            <EmptyTitle>This build knows no harnesses</EmptyTitle>
+            <EmptyDescription>A harness is a coding agent or tool ai squared can install, sign in to and run. This build was made without a registry of them, so there is nothing to list.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 harness list</Code>

@@ -35,7 +35,7 @@ export default function Audit() {
           </>
         }
       >
-        Every call through the vault, newest first: who asked, for what, and what the vault decided. Never the secret, the
+        Every call through the vault, newest first: who asked, for what, and what the vault decided. Never the key, the
         token or a body.
       </Toolbar>
       {error && !data ? (
@@ -43,8 +43,8 @@ export default function Audit() {
       ) : !data ? (
         <Rows count={5} />
       ) : entries.length === 0 ? (
-        <Nothing icon={ScrollText} title="The audit log is empty">
-          Calls show up here as soon as an app or agent uses a token.
+        <Nothing icon={ScrollText} title="Nothing has passed through yet">
+          The audit log is every call through the vault. The first call on a token writes the first line here.
         </Nothing>
       ) : (
         <Panel>

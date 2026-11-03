@@ -40,16 +40,16 @@ export default function Tokens({ mac }: { mac: boolean }) {
           </Button>
         }
       >
-        A token lets one sandbox use some keys, for some methods and URLs, for a while. App tokens call straight
-        through; every call on an agent token is vetted against its intent.
+        A token is a day pass: one sandbox, some keys, some methods and URLs, for a while. App tokens walk straight
+        through; every call on an agent token is checked against the job its run was started with.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
       ) : !data ? (
         <Rows />
       ) : tokens.length === 0 ? (
-        <Nothing icon={Ticket} title="No tokens">
-          Create one for an app or an agent run. The vault keeps only its hash.
+        <Nothing icon={Ticket} title="No tokens yet">
+          A token is what an app or an agent run carries instead of a key. The first one is created here; the vault keeps only its hash.
         </Nothing>
       ) : (
         <Panel>
@@ -186,7 +186,7 @@ function CreateToken({
         <form onSubmit={submit} autoComplete="off" className="flex min-h-0 flex-1 flex-col">
           <SheetHeader className="pb-2">
             <SheetTitle>Create a token</SheetTitle>
-            <SheetDescription>It joins your pending changes. On Apply the token is shown once; the vault keeps only its hash.</SheetDescription>
+            <SheetDescription>It joins your pending changes. On Apply the token appears once; the vault keeps only its hash.</SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-2">
             <FieldGroup className="gap-5">
@@ -197,7 +197,7 @@ function CreateToken({
                 {!keyNames ? (
                   <span className="text-xs text-muted-foreground">{keys.error ?? "Loading keys…"}</span>
                 ) : keyNames.length === 0 ? (
-                  <span className="text-xs text-muted-foreground">Add a key first.</span>
+                  <span className="text-xs text-muted-foreground">The vault has no keys yet; a token needs at least one.</span>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {keyNames.map((name) => {
@@ -233,8 +233,8 @@ function CreateToken({
                 />
                 <p className="text-xs text-muted-foreground">
                   {form.mode === "agent"
-                    ? "Every call is vetted against the intent; writes wait for your approval."
-                    : "Calls inside the limits go straight through."}
+                    ? "Every call is checked against the intent, and writes wait for your approval."
+                    : "Calls inside the limits walk straight through."}
                 </p>
               </div>
               <Field>
@@ -286,7 +286,7 @@ function CreateToken({
                   className="font-mono"
                   placeholder="https://api.stripe.com/v1/refunds"
                 />
-                <FieldDescription>Optional, one per line. Empty means the keys' approved URLs.</FieldDescription>
+                <FieldDescription>Optional, one per line. Left empty, the keys' own approved URLs apply.</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel>
@@ -300,8 +300,8 @@ function CreateToken({
                 />
                 <FieldDescription>
                   {form.mode === "agent"
-                    ? "Required. What the run is for, in the user's own words; each call is vetted against it."
-                    : "Optional for app tokens."}
+                    ? "What this run is for, in your own words. Each call is checked against it."
+                    : "App tokens can leave this empty."}
                 </FieldDescription>
               </Field>
               <div className="grid grid-cols-2 gap-3">

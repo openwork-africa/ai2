@@ -29,13 +29,13 @@ export function Shell() {
   const tone = !status ? (error ? "destructive" : "muted") : vault?.reachable ? "success" : "warning";
   const vaultLine = !status
     ? error
-      ? "ai2 ui is not answering"
-      : "Checking the vault"
+      ? "ai squared isn't answering"
+      : "Checking on the vault"
     : vault?.reachable
       ? vault.master_key === false
-        ? "Vault running, no key"
-        : "Vault running"
-      : "Vault not running";
+        ? "Vault up, no master key"
+        : "Vault up"
+      : "Vault down";
 
   return (
     <SidebarProvider>
@@ -44,7 +44,7 @@ export function Shell() {
           <Link to="/" className="flex items-center gap-2.5 rounded-lg px-1 py-1">
             <Mark />
             <span className="flex min-w-0 flex-col leading-tight">
-              <span className="font-heading text-sm font-semibold tracking-tight">ai2</span>
+              <span className="font-heading text-sm font-semibold tracking-tight">ai squared</span>
               <span className="truncate text-2xs text-muted-foreground">on {machine()}</span>
             </span>
           </Link>

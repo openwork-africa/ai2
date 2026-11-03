@@ -23,7 +23,7 @@ function Locked() {
         <EmptyMedia variant="icon">
           <LockKeyhole />
         </EmptyMedia>
-        <EmptyTitle>Open the address ai2 ui printed</EmptyTitle>
+        <EmptyTitle>Open the address that <Code>ai2 ui</Code> printed</EmptyTitle>
         <EmptyDescription>This page only answers the link with its nonce, so no other site can use it.</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>

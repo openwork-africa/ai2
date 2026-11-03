@@ -34,7 +34,7 @@ export function Presence() {
               <span className="text-sm font-medium">
                 {kind === "polkit" ? "Confirm in the system prompt" : "Confirm with Touch ID on this Mac"}
               </span>
-              <span className="text-xs text-muted-foreground">The vault asks before it will {action}.</span>
+              <span className="text-xs text-muted-foreground">The vault wants you present before it will {action}.</span>
             </span>
           </div>
         </div>
@@ -64,7 +64,7 @@ function Passphrase({ action }: { action: string }) {
             </AlertDialogMedia>
             <AlertDialogTitle>Vault passphrase</AlertDialogTitle>
             <AlertDialogDescription>
-              The vault needs you present to {action}. The passphrase is sent once, for this change only, and not kept.
+              The vault wants you present before it will {action}. The passphrase is used once, for this change, and not kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Field>

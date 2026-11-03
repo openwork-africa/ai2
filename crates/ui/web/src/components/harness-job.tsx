@@ -29,7 +29,7 @@ const headline = (job: JobView, label: string) => {
   const install = job.action === "install";
   if (!job.done) return install ? `Installing ${label}` : `Signing in to ${label}`;
   if (job.done.ok) return install ? `Installed ${label}` : `Signed in to ${label}`;
-  return install ? "The install did not finish" : "Signing in did not finish";
+  return install ? "The install didn't finish" : "The sign-in didn't finish";
 };
 
 const lastLine = (lines: string[]) => {
@@ -103,7 +103,7 @@ function Answer({ harness, job, onAnswer }: { harness: Harness; job: JobView; on
     event.preventDefault();
     const value = text.trim();
     if (!value) {
-      setFailed(key ? "Paste the key first." : "Paste the code first.");
+      setFailed(key ? "The key goes here first." : "The code goes here first.");
       return;
     }
     setSending(true);
@@ -150,7 +150,7 @@ function Answer({ harness, job, onAnswer }: { harness: Harness; job: JobView; on
           Sent. It is typed in for you and never shown back.
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">It is typed into the sign-in for you and never shown in the log.</p>
+        <p className="text-xs text-muted-foreground">It's typed into the sign-in for you and never shown in the log.</p>
       )}
     </form>
   );

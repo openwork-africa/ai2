@@ -77,7 +77,7 @@ export function Pending() {
               <span className="text-sm font-medium">
                 {count === 1 ? "1 change waiting" : `${count} changes waiting`}
               </span>
-              <span className="hidden text-xs text-muted-foreground sm:inline">Checked together and applied all or none, with one confirmation.</span>
+              <span className="hidden text-xs text-muted-foreground sm:inline">Checked together and applied all or none, after one confirmation.</span>
             </span>
             <div className="flex gap-2">
               <Button variant="outline" disabled={busy} onClick={discardQueue}>
@@ -107,7 +107,7 @@ function ShownOnce({ tokens, onDone }: { tokens: NewToken[]; onDone: () => void 
           </AlertDialogMedia>
           <AlertDialogTitle>{one ? "Copy the new token now" : "Copy the new tokens now"}</AlertDialogTitle>
           <AlertDialogDescription>
-            {one ? "It is" : "They are"} shown this once. The vault keeps only a hash, so it cannot show {one ? "it" : "them"} again.
+            This is the only time {one ? "it appears" : "they appear"}. The vault keeps only a hash, so it can't show {one ? "it" : "them"} again.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex max-h-[50vh] min-w-0 flex-col gap-5 overflow-y-auto">

@@ -6,7 +6,7 @@ function Count() {
   if (!count) return null;
   return (
     <SidebarMenuBadge
-      aria-label={`${count} waiting for approval`}
+      aria-label={`${count} waiting for your word`}
       className="rounded-full bg-primary px-1.5 text-primary-foreground [.cn-sidebar-menu-button:hover_~_&]:text-primary-foreground [.cn-sidebar-menu-button[data-active=true]_~_&]:text-primary-foreground"
     >
       {count}

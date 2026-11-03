@@ -16,9 +16,9 @@ const ICON_TYPES = "image/png,image/svg+xml,image/x-icon,image/vnd.microsoft.ico
 const ICON_LIMIT = 512 * 1024;
 
 const RESTARTS: { value: Restart; label: string; why: string }[] = [
-  { value: "never", label: "Never", why: "Keeps running when ai2 ui stops." },
-  { value: "on-failure", label: "When it fails", why: "ai2 ui restarts it after a non-zero exit; it stops with ai2 ui." },
-  { value: "always", label: "Always", why: "ai2 ui restarts it after any exit; it stops with ai2 ui." },
+  { value: "never", label: "Never", why: "It outlives ai squared." },
+  { value: "on-failure", label: "When it fails", why: "After a crash, ai squared brings it back; it stops when ai squared stops." },
+  { value: "always", label: "Always", why: "After any exit, ai squared brings it back; it stops when ai squared stops." },
 ];
 
 type FieldName = "name" | "description" | "icon" | "command" | "cwd" | "port" | "openapi" | "env";
@@ -169,15 +169,15 @@ export function AppForm({
 
   const validate = (): Errors => {
     const found: Errors = {};
-    if (!name.trim()) found.name = "Required: what the app is called.";
-    if (!description.trim()) found.description = "Required: one line on what the app is for.";
-    if (!command.trim()) found.command = "Required: the command that runs the app.";
-    if (!cwd.trim().startsWith("/")) found.cwd = "Required: the app's folder, as an absolute path.";
-    if (!openapi.trim()) found.openapi = "Required: the app's OpenAPI document.";
-    if (!app && !icon) found.icon = "Required: the app's favicon.";
-    if (icon && icon.size > ICON_LIMIT) found.icon = `The icon is ${Math.round(icon.size / 1024)} KiB; the limit is 512 KiB.`;
-    if (port.trim() && !(Number.isInteger(Number(port)) && Number(port) > 0 && Number(port) < 65536)) found.port = "A port from 1 to 65535.";
-    if (pairs.some((pair) => !pair.key.trim() && pair.value)) found.env = "Every value needs a name.";
+    if (!name.trim()) found.name = "The app needs a name.";
+    if (!description.trim()) found.description = "One line on what the app is for.";
+    if (!command.trim()) found.command = "The command that runs the app.";
+    if (!cwd.trim().startsWith("/")) found.cwd = "The app's folder, as a full path.";
+    if (!openapi.trim()) found.openapi = "Where the OpenAPI document lives.";
+    if (!app && !icon) found.icon = "The app needs an icon.";
+    if (icon && icon.size > ICON_LIMIT) found.icon = `That icon is ${Math.round(icon.size / 1024)} KiB; 512 KiB is the ceiling.`;
+    if (port.trim() && !(Number.isInteger(Number(port)) && Number(port) > 0 && Number(port) < 65536)) found.port = "A port between 1 and 65535.";
+    if (pairs.some((pair) => !pair.key.trim() && pair.value)) found.env = "Each value needs a name.";
     return found;
   };
 
@@ -249,13 +249,13 @@ export function AppForm({
         <Field className="data-[invalid=true]:text-foreground" invalid={Boolean(errors.command)}>
           <FieldLabel>Run command</FieldLabel>
           <Input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="deno task start" className="font-mono" />
-          <FieldDescription>Runs in a shell, in the folder.</FieldDescription>
+          <FieldDescription>It runs in a shell, inside the folder below.</FieldDescription>
           <FieldError className="text-destructive">{errors.command}</FieldError>
         </Field>
         <Field className="data-[invalid=true]:text-foreground" invalid={Boolean(errors.cwd)}>
           <FieldLabel>Folder</FieldLabel>
           <Input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="/Users/you/Documents/workspot" className="font-mono" />
-          <FieldDescription>Where the command runs, as an absolute path.</FieldDescription>
+          <FieldDescription>Where the command runs, as a full path.</FieldDescription>
           <FieldError className="text-destructive">{errors.cwd}</FieldError>
         </Field>
         <Field className="data-[invalid=true]:text-foreground" invalid={Boolean(errors.port)}>
@@ -275,16 +275,16 @@ export function AppForm({
                 </SwitchControl>
                 <SwitchHiddenInput />
               </Switch>
-              ai2 sets <code className="font-mono text-xs">PORT</code>
+              ai squared sets <code className="font-mono text-xs">PORT</code>
             </label>
           </div>
-          <FieldDescription>Leave it empty and ai2 reads it from the command or the app's code.</FieldDescription>
+          <FieldDescription>Leave it empty and ai squared works it out from the command or the code.</FieldDescription>
           <FieldError className="text-destructive">{errors.port}</FieldError>
         </Field>
         <Field className="data-[invalid=true]:text-foreground" invalid={Boolean(errors.openapi)}>
           <FieldLabel>OpenAPI</FieldLabel>
           <Input value={openapi} onChange={(event) => setOpenapi(event.target.value)} placeholder="/openapi.json" className="font-mono" />
-          <FieldDescription>Required. A path under the app's URL, or a file. Checked when the app is running.</FieldDescription>
+          <FieldDescription>A path under the app's URL, or a file on disk. Once the app is running, ai squared reads it from there.</FieldDescription>
           <FieldError className="text-destructive">{errors.openapi}</FieldError>
         </Field>
       </FieldGroup>

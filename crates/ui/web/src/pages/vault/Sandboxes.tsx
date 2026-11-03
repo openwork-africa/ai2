@@ -30,16 +30,16 @@ export default function Sandboxes() {
           </Button>
         }
       >
-        A sandbox is where calls come from: its own socket, or a TCP address that answers only its peers. A token
-        works in one sandbox only.
+        A sandbox is a place calls come from: its own socket, or a TCP address that answers only to its peers. A token
+        works in one sandbox and nowhere else.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
       ) : !data ? (
         <Rows count={2} />
       ) : sandboxes.length === 0 ? (
-        <Nothing icon={Box} title="No sandboxes">
-          Setup adds <Mono>host</Mono> for apps on this machine. Add one per container or agent run.
+        <Nothing icon={Box} title="No sandboxes yet">
+          A sandbox is where a token is allowed to call from. Setup makes <Mono>host</Mono> for the apps on this machine; each container or agent run gets one of its own.
         </Nothing>
       ) : (
         <Panel>
@@ -136,7 +136,7 @@ function AddSandbox({
         <form onSubmit={submit} autoComplete="off" className="flex min-h-0 flex-1 flex-col">
           <SheetHeader className="pb-2">
             <SheetTitle>Add a sandbox</SheetTitle>
-            <SheetDescription>It joins your pending changes. On Apply the vault opens its endpoint.</SheetDescription>
+            <SheetDescription>It joins your pending changes. On Apply the vault opens the door.</SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-2">
             <FieldGroup className="gap-5">
@@ -174,7 +174,7 @@ function AddSandbox({
                     spellCheck={false}
                     className="font-mono"
                   />
-                  <FieldDescription>Optional. Empty puts it in the vault's sockets folder, which is what a container mounts.</FieldDescription>
+                  <FieldDescription>Optional. Left empty, it lands in the vault's sockets folder, which is what a container mounts.</FieldDescription>
                 </Field>
               ) : (
                 <>
@@ -197,7 +197,7 @@ function AddSandbox({
                       spellCheck={false}
                       className="font-mono"
                     />
-                    <FieldDescription>The only addresses it takes calls from, separated by spaces or commas.</FieldDescription>
+                    <FieldDescription>The only addresses it will answer, separated by spaces or commas.</FieldDescription>
                   </Field>
                 </>
               )}
