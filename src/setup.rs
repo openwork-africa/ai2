@@ -33,6 +33,10 @@ fn in_the_browser(name: &'static str, options: setup::Options, check: bool) -> R
         .ok()
         .and_then(|port| port.parse().ok())
         .unwrap_or(ui::DEFAULT_PORT);
+    crate::ui::inject(crate::cli::Build {
+        name,
+        ..crate::cli::Build::ai2()
+    });
     ui::setup::run(
         &crate::ui::options(name),
         options,
