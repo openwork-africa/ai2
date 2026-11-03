@@ -9,6 +9,8 @@ service="ai2-vault"
 real_label="africa.openwork.ai2-vault"
 login_kc="$HOME/Library/Keychains/login.keychain-db"
 plist="$HOME/Library/LaunchAgents/$label.plist"
+ui_label="africa.openwork.ai2-ui-e2e.$run_id"
+ui_plist="$HOME/Library/LaunchAgents/$ui_label.plist"
 container_name="ai2e2e-$run_id"
 kc_pass="e2e-$run_id-$(openssl rand -hex 8)"
 secret="e2e-secret-$(openssl rand -hex 16)"
@@ -20,6 +22,8 @@ mkdir -p "$T/bin" "$T/stub" "$T/h"
 export AI2_HOME="$T/h"
 export AI2_VAULT_KEYCHAIN="$kc"
 export AI2_VAULT_LABEL="$label"
+export AI2_UI_LABEL="$ui_label"
+export AI2_UI_PORT=47797
 
 passed=0
 failed=0
@@ -64,6 +68,9 @@ cleanup() {
 	fi
 	if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then say "CLEANUP FAIL: $label still loaded"; else say "cleanup: $label not loaded"; fi
 	rm -f "$plist"
+	launchctl bootout "gui/$uid/$ui_label" 2>/dev/null
+	rm -f "$ui_plist"
+	if [ -e "$ui_plist" ]; then say "CLEANUP FAIL: $ui_plist still there"; fi
 	if [ -e "$plist" ]; then say "CLEANUP FAIL: $plist still there"; else say "cleanup: $plist removed"; fi
 	if container list --all 2>/dev/null | awk '{print $1}' | grep -qx "$container_name"; then
 		container rm -f "$container_name" >/dev/null 2>&1
