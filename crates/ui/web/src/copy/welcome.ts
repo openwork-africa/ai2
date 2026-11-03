@@ -3,22 +3,22 @@ export type Chapter = { id: string; title: string; body: string; image: string; 
 export const CHAPTERS: Chapter[] = [
   {
     id: "monitor",
-    title: "ai squared keeps every agent on this machine in view while it works.",
-    body: "Claude Code, Codex, pi, fx and the rest live on this machine, and ai squared keeps them in view: which ones are installed and signed in, which are running right now, and what each run did, line by line, as it happens.",
+    title: "ai squared watches every agent while it works.",
+    body: "See which agents are signed in, which are running, and what each run did.",
     image: "/welcome/monitor.webp",
     alt: "A telescope on a hill watching three rounded agents at work among floating app windows, one of them green.",
   },
   {
     id: "secure",
     title: "ai squared treats every agent as if it might be compromised.",
-    body: "Every run is reviewed against exploits published in the last few days, and a reviewer reads every file it changed. Each call is held against the job you gave the run, and anything that writes waits for your yes. A tricked agent holds a token, never a key, so it has nothing to leak.",
+    body: "Every run is reviewed, every write waits for your yes, and an agent only ever holds a token, never your keys.",
     image: "/welcome/secure.webp",
     alt: "A vault door set in a shield, with a key beside it.",
   },
   {
     id: "consume",
-    title: "Your apps stay close, where you can care for them and your agents can call on them, and every one you finish makes the next one easier to begin.",
-    body: "Start them, stop them, read their logs and change their settings from one shelf. Your agents reach each one through MCP and its OpenAPI document. Set up comes next, and it gets the vault ready on this machine.",
+    title: "Your apps stay close, and every one you finish makes the next easier to begin.",
+    body: "Run them from one place, and let your agents call on them too.",
     image: "/welcome/consume.webp",
     alt: "Jars of apps on a shelf, a hand lifting the green one.",
   },
