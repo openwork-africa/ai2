@@ -118,7 +118,7 @@ pub fn run(ui: &crate::Options, setup: ::setup::Options, launch: Launch) -> Resu
 
 pub async fn serve(server: Server, engine: Engine, check: bool, open: bool) -> Result<bool> {
     let bridge = arm(&server.state(), engine, check);
-    let url = server.url(Some("setup"));
+    let url = server.url(Some(first_page(check)));
     println!("{}", json!({ "url": url, "setup": true }));
     if open {
         if let Err(error) = crate::open(&url) {
@@ -127,6 +127,14 @@ pub async fn serve(server: Server, engine: Engine, check: bool, open: bool) -> R
     }
     server.serve().await?;
     Ok(bridge.ok().unwrap_or(true))
+}
+
+pub fn first_page(check: bool) -> &'static str {
+    if check {
+        "setup"
+    } else {
+        "welcome"
+    }
 }
 
 pub fn routes() -> OpenApiRouter<Shared> {
