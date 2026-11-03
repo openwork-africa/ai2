@@ -1,10 +1,4 @@
-![The Apps page of ai squared over a sky, ocean and grass scene](.github/banner.svg)
-
-```text
-┌───────┐
-│  ai²  │   ai squared
-└───────┘
-```
+![The Apps page of ai squared over a sky, ocean and grass scene](.github/banner.jpg)
 
 # ai squared
 
