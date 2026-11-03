@@ -16,6 +16,7 @@ keys = { path = "../keys" }
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+setup = { path = "../setup" }
 sha2 = "0.10"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 zeroize.workspace = true

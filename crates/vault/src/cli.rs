@@ -130,8 +130,18 @@ enum VaultCommand {
             help = "The keys, comma separated"
         )]
         keys: Vec<String>,
-        #[arg(long, default_value = "host")]
-        sandbox: String,
+        #[arg(
+            long,
+            help = "Run on this machine with this sandbox's token [default: a throwaway container]"
+        )]
+        sandbox: Option<String>,
+        #[arg(
+            long,
+            conflicts_with = "sandbox",
+            default_value = with::IMAGE,
+            help = "The image for the throwaway container"
+        )]
+        image: String,
         #[arg(long, help = "What the command is for; needed for agent tokens")]
         intent: Option<String>,
         #[arg(long, default_value = "agent", value_parser = ["agent", "app"])]
@@ -550,6 +560,7 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
         VaultCommand::With {
             keys,
             sandbox,
+            image,
             intent,
             mode,
             methods,
@@ -561,6 +572,7 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
             With {
                 keys,
                 sandbox,
+                image,
                 intent,
                 mode,
                 methods,
