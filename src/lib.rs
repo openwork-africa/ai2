@@ -104,19 +104,18 @@ mod tests {
 
     #[test]
     fn features_bring_the_pieces_they_need() {
-        if cfg!(feature = "setup") {
-            assert!(cfg!(feature = "vault"));
-        }
-        if cfg!(feature = "agents") {
-            assert!(cfg!(feature = "harness"));
-        }
-        if cfg!(feature = "ui") {
-            assert!(cfg!(all(
-                feature = "vault",
-                feature = "setup",
-                feature = "apps",
-                feature = "agents"
-            )));
+        const {
+            assert!(!cfg!(feature = "setup") || cfg!(feature = "vault"));
+            assert!(!cfg!(feature = "agents") || cfg!(feature = "harness"));
+            assert!(
+                !cfg!(feature = "ui")
+                    || cfg!(all(
+                        feature = "vault",
+                        feature = "setup",
+                        feature = "apps",
+                        feature = "agents"
+                    ))
+            );
         }
     }
 }
