@@ -29,10 +29,7 @@ impl Subcommand for SetupSubcommand {
 
 #[cfg(feature = "ui")]
 fn in_the_browser(name: &'static str, options: setup::Options, check: bool) -> Result<bool> {
-    let port = std::env::var("AI2_UI_PORT")
-        .ok()
-        .and_then(|port| port.parse().ok())
-        .unwrap_or(ui::DEFAULT_PORT);
+    let port = crate::ui::port();
     crate::ui::inject(crate::cli::Build {
         name,
         ..crate::cli::Build::ai2()

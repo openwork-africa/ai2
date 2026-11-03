@@ -95,21 +95,37 @@ pub fn run(matches: &ArgMatches, options: &Options) -> Result<bool> {
         _ => {}
     }
     let tab = matches.get_one::<String>("tab").cloned();
-    let open_browser = !matches.get_flag("no-open");
+    serve_page(
+        port,
+        options,
+        tab.as_deref(),
+        !matches.get_flag("no-open"),
+        serde_json::Map::new(),
+    )
+}
+
+pub fn serve_page(
+    port: u16,
+    options: &Options,
+    page: Option<&str>,
+    open_browser: bool,
+    extra: serde_json::Map<String, serde_json::Value>,
+) -> Result<bool> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("starting the ui runtime")?;
     runtime.block_on(async move {
         let server = Server::bind(port, options).await?;
-        let url = server.url(tab.as_deref());
-        println!(
-            "{}",
-            serde_json::json!({
-                "url": url,
-                "admin_socket": options.admin.display().to_string(),
-            })
-        );
+        let url = server.url(page);
+        let mut printed = serde_json::json!({
+            "url": url,
+            "admin_socket": options.admin.display().to_string(),
+        });
+        if let serde_json::Value::Object(printed) = &mut printed {
+            printed.extend(extra);
+        }
+        println!("{printed}");
         if open_browser {
             if let Err(error) = open(&url) {
                 eprintln!("ai2: could not open the browser, open the url yourself: {error:#}");

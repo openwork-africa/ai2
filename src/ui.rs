@@ -18,6 +18,13 @@ pub fn options(name: &'static str) -> ::ui::Options {
     }
 }
 
+pub fn port() -> u16 {
+    std::env::var("AI2_UI_PORT")
+        .ok()
+        .and_then(|port| port.parse().ok())
+        .unwrap_or(::ui::DEFAULT_PORT)
+}
+
 pub fn inject(build: Build) {
     let Ok(bin) = std::env::current_exe() else {
         return;

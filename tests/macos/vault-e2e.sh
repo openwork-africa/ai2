@@ -240,19 +240,20 @@ check "no secret or token anywhere in the state" not grep -rqF -D skip -e "$secr
 say "== ui"
 printf '#!/bin/sh\nexit 0\n' >"$T/stub/open"
 chmod +x "$T/stub/open"
-PATH="$T/stub:$PATH" "$bin" vault ui >"$T/ui.json" 2>"$T/ui.err" &
+PATH="$T/stub:$PATH" AI2_UI_PORT=0 "$bin" vault ui >"$T/ui.json" 2>"$T/ui.err" &
 ui_pid=$!
 started_pids="$started_pids $ui_pid"
 for _ in $(seq 1 50); do [ -s "$T/ui.json" ] && break; sleep 0.1; done
 url=$(j url <"$T/ui.json")
-origin=${url%%/?nonce=*}
+origin=$(printf '%s' "$url" | sed -E 's|^(http://[^/]+).*|\1|')
 nonce=${url##*nonce=}
+check "ui opens on the vault page" test "${url%%\?nonce=*}" = "$origin/vault"
 check "ui page with the nonce: 200" test "$(curl -s -o "$T/ui.html" -w '%{http_code}' "$url")" = 200
 check "ui page is html" grep -qi "<html" "$T/ui.html"
-check "ui page without the nonce: 403" test "$(curl -s -o /dev/null -w '%{http_code}' "$origin/")" = 403
-check "ui api with the nonce: 200" test "$(curl -s -o "$T/ui-keys.json" -w '%{http_code}' -H "X-Vault-UI-Nonce: $nonce" "$origin/api/keys")" = 200
+check "ui page with a wrong nonce: 403" test "$(curl -s -o /dev/null -w '%{http_code}' "$origin/?nonce=wrong")" = 403
+check "ui api with the nonce: 200" test "$(curl -s -o "$T/ui-keys.json" -w '%{http_code}' -H "X-Ai2-UI-Nonce: $nonce" "$origin/api/vault/keys")" = 200
 check "ui api lists example" grep -q '"example"' "$T/ui-keys.json"
-check "ui api without the nonce: 403" test "$(curl -s -o /dev/null -w '%{http_code}' "$origin/api/keys")" = 403
+check "ui api without the nonce: 403" test "$(curl -s -o /dev/null -w '%{http_code}' "$origin/api/vault/keys")" = 403
 kill "$ui_pid" 2>/dev/null
 wait "$ui_pid" 2>/dev/null
 

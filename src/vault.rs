@@ -49,7 +49,15 @@ impl Subcommand for VaultSubcommand {
         let options = self.options();
         match vault::outcome(matches, &options)? {
             Outcome::Code(code) => Ok(ExitCode::from(code as u8)),
-            Outcome::Extra(name, sub) => ui::run(&name, &sub, &options),
+            Outcome::Extra(name, sub) => ui::run(
+                crate::cli::Build {
+                    name: self.name,
+                    ..crate::cli::Build::ai2()
+                },
+                &name,
+                &sub,
+                &options,
+            ),
         }
     }
     fn usage_exit(&self) -> Option<u8> {
@@ -61,43 +69,78 @@ impl Subcommand for VaultSubcommand {
 mod ui {
     use crate::cli::{default_out, exit_code, Build};
     use anyhow::{anyhow, bail, Context, Result};
-    use clap::ArgMatches;
+    use clap::{value_parser, Arg, ArgMatches, Command};
+    use serde_json::{json, Map};
     use std::path::{Path, PathBuf};
     use std::process::ExitCode;
 
-    pub fn commands() -> Vec<clap::Command> {
-        vec![vault_ui::command()]
+    pub fn commands() -> Vec<Command> {
+        vec![Command::new("ui")
+            .about("Opens ai2 ui on its Vault page: keys, tokens, sandboxes, approvals and the audit log")
+            .arg(
+                Arg::new("report")
+                    .long("report")
+                    .value_name("PATH")
+                    .value_parser(value_parser!(PathBuf))
+                    .help("A reviewed folder, its out folder or its report.html: opens that review in ai2 ui instead"),
+            )]
     }
 
-    pub fn run(name: &str, sub: &ArgMatches, options: &vault::Options) -> Result<ExitCode> {
+    pub fn run(
+        build: Build,
+        name: &str,
+        sub: &ArgMatches,
+        options: &vault::Options,
+    ) -> Result<ExitCode> {
         if name != "ui" {
             return Err(anyhow!("unknown vault subcommand {name}"));
         }
-        let report = sub
+        let review = sub
             .get_one::<PathBuf>("report")
-            .map(|path| report_file(path))
+            .map(|path| review_dir(build, path))
             .transpose()?;
-        vault_ui::run(report, &options.admin).map(exit_code)
+        let page = match &review {
+            Some(dir) => format!(
+                "reviews/{}",
+                dir.file_name().unwrap_or_default().to_string_lossy()
+            ),
+            None => "vault".to_string(),
+        };
+        let mut extra = Map::new();
+        extra.insert(
+            "report".into(),
+            json!(review.map(|dir| dir.display().to_string())),
+        );
+        crate::ui::inject(build);
+        let ui = ::ui::Options {
+            home: crate::cli::state_dir(build.name),
+            admin: options.admin.clone(),
+        };
+        ::ui::serve_page(crate::ui::port(), &ui, Some(&page), true, extra).map(exit_code)
     }
 
-    fn report_file(path: &Path) -> Result<PathBuf> {
-        if path.is_file() {
-            return Ok(path.to_path_buf());
-        }
-        let folder = path
+    pub fn review_dir(build: Build, path: &Path) -> Result<PathBuf> {
+        let given = path
             .canonicalize()
             .with_context(|| format!("{} is not a folder or a report", path.display()))?;
-        let reviewed = default_out(Build::ai2(), &folder).join("report.html");
-        if reviewed.is_file() {
+        let dir = if given.is_file() {
+            given.parent().map(Path::to_path_buf).unwrap_or_default()
+        } else {
+            given.clone()
+        };
+        let named = dir
+            .file_name()
+            .is_some_and(|hash| ::ui::reviews::valid_hash(&hash.to_string_lossy()));
+        if named && dir.join("review.json").is_file() {
+            return Ok(dir);
+        }
+        let reviewed = default_out(build, &dir);
+        if reviewed.join("review.json").is_file() {
             return Ok(reviewed);
         }
-        let inside = folder.join("report.html");
-        if inside.is_file() {
-            return Ok(inside);
-        }
         bail!(
-            "There is no report.html for {}: run ai2 on it first.",
-            folder.display()
+            "There is no review of {}: run ai2 on it first.",
+            given.display()
         )
     }
 }
@@ -112,7 +155,12 @@ mod ui {
         Vec::new()
     }
 
-    pub fn run(name: &str, _sub: &ArgMatches, _options: &vault::Options) -> Result<ExitCode> {
+    pub fn run(
+        _build: crate::cli::Build,
+        name: &str,
+        _sub: &ArgMatches,
+        _options: &vault::Options,
+    ) -> Result<ExitCode> {
         Err(anyhow!("unknown vault subcommand {name}"))
     }
 }
@@ -304,5 +352,26 @@ mod tests {
     fn owners_come_from_a_comma_list_of_uids() {
         assert_eq!(super::owners(Some("501, 1000,x")), vec![501, 1000]);
         assert!(super::owners(None).is_empty());
+    }
+
+    #[cfg(feature = "ui")]
+    #[test]
+    fn vault_ui_report_finds_the_review_folder_from_its_report_or_itself() {
+        let home = tempfile::tempdir().unwrap();
+        let review = home.path().join("0123456789abcdef");
+        std::fs::create_dir(&review).unwrap();
+        std::fs::write(review.join("review.json"), "{}").unwrap();
+        std::fs::write(review.join("report.html"), "<html>").unwrap();
+        let real = review.canonicalize().unwrap();
+        let build = crate::cli::Build::ai2();
+        assert_eq!(
+            super::ui::review_dir(build, &review.join("report.html")).unwrap(),
+            real
+        );
+        assert_eq!(super::ui::review_dir(build, &review).unwrap(), real);
+        let unreviewed = home.path().join("plain");
+        std::fs::create_dir(&unreviewed).unwrap();
+        assert!(super::ui::review_dir(build, &unreviewed).is_err());
+        assert!(super::ui::review_dir(build, &home.path().join("nope")).is_err());
     }
 }

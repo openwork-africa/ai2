@@ -21,7 +21,7 @@ harness = ["dep:harness", "mcp?/harness"]
 vault = ["dep:vault", "dep:keys", "mcp?/vault"]
 setup = ["dep:setup", "vault", "mcp?/setup"]
 apps = ["dep:apps", "mcp?/apps"]
-ui = ["dep:ui", "dep:vault-ui", "vault", "setup", "apps"]
+ui = ["dep:ui", "vault", "setup", "apps"]
 mcp = ["dep:mcp", "ui?/mcp"]
 
 [dependencies]
@@ -33,7 +33,6 @@ mcp = { path = "crates/mcp", default-features = false, optional = true }
 setup = { path = "crates/setup", optional = true }
 ui = { path = "crates/ui", optional = true }
 vault = { path = "crates/vault", optional = true }
-vault-ui = { path = "crates/vault-ui", optional = true }
 clap = { version = "4.6", features = ["derive", "env"] }
 include_dir = "0.7"
 os_info = { version = "3", default-features = false }
@@ -46,7 +45,7 @@ tempfile.workspace = true
 
 [workspace]
 resolver = "3"
-members = [".", "crates/apps", "crates/harness", "crates/keys", "crates/mcp", "crates/setup", "crates/ui", "crates/vault", "crates/vault-ui"]
+members = [".", "crates/apps", "crates/harness", "crates/keys", "crates/mcp", "crates/setup", "crates/ui", "crates/vault"]
 
 [workspace.package]
 rust-version = "1.88"

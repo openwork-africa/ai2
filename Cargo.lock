@@ -42,7 +42,6 @@ dependencies = [
  "ui",
  "ureq",
  "vault",
- "vault-ui",
 ]
 
 [[package]]
@@ -3198,17 +3197,6 @@ dependencies = [
  "ureq",
  "utoipa",
  "zeroize",
-]
-
-[[package]]
-name = "vault-ui"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "clap",
- "serde_json",
- "tempfile",
- "vault",
 ]
 
 [[package]]

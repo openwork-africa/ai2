@@ -212,7 +212,7 @@ fn esc(text: &str) -> String {
 
 const TABS: &str = "<input type=\"radio\" name=\"tab\" id=\"tab-review\" class=\"tab\" checked><input type=\"radio\" name=\"tab\" id=\"tab-vault\" class=\"tab\"><nav class=\"tabs\"><label for=\"tab-review\">Review</label><label for=\"tab-vault\">Vault</label></nav><div class=\"review-panel\">";
 
-const VAULT: &str = "<section id=\"vault\" class=\"vault-panel\"><h1>Vault</h1><p class=\"missing\">This report was opened as a file. Run <code>ai2 vault ui</code> to see and manage the vault here: keys, tokens, sandboxes, approvals and the audit log.</p></section>";
+const VAULT: &str = "<section id=\"vault\" class=\"vault-panel\"><h1>Vault</h1><p class=\"missing\">This report was opened as a file. Run <code>ai2 ui</code> to see and manage the vault on its Vault page: keys, tokens, sandboxes, approvals and the audit log.</p></section>";
 
 const STYLE: &str = r#"
 :root{--bg:#fafaf9;--card:#fff;--text:#1c1917;--muted:#78716c;--line:#e7e5e4;--good:#15803d;--fair:#b45309;--poor:#b91c1c;--accent:#2563eb}
