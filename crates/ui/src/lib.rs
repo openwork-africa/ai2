@@ -5,6 +5,7 @@ mod reply;
 mod routes;
 mod security;
 mod server;
+pub mod setup;
 mod state;
 mod status;
 #[cfg(test)]

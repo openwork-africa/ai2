@@ -2627,16 +2627,20 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "futures-util",
  "include_dir",
+ "keys",
  "mime_guess",
  "serde",
  "serde_json",
+ "setup",
  "tempfile",
  "tokio",
  "tower-http",
  "utoipa",
  "utoipa-axum",
  "vault",
+ "zeroize",
 ]
 
 [[package]]
