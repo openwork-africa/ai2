@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use keys::{MasterKey, MemoryKey, Platform, Presence};
+use keys::{Caller, MasterKey, MemoryKey, Platform, Presence};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -94,14 +94,20 @@ fn answer(mut stream: TcpStream, log: &Mutex<Vec<String>>) {
 struct Gate {
     present: std::sync::atomic::AtomicBool,
     asked: Mutex<Vec<String>>,
+    callers: Mutex<Vec<Caller>>,
 }
 
 struct Door(Arc<Gate>);
 
 impl Presence for Door {
-    fn confirm(&self, action: &str, _passphrase: Option<&str>) -> Result<bool> {
+    fn confirm(&self, action: &str, caller: &Caller, _passphrase: Option<&str>) -> Result<bool> {
         self.0.asked.lock().unwrap().push(action.to_string());
+        self.0.callers.lock().unwrap().push(*caller);
         Ok(self.0.present.load(Ordering::SeqCst))
+    }
+
+    fn kind(&self) -> &'static str {
+        keys::MEMORY
     }
 }
 
@@ -637,6 +643,15 @@ fn changes_need_a_human_present() {
     assert_eq!(value["master_key"], true);
     assert_eq!(value["platform"], std::env::consts::OS);
     assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(value["presence"], keys::MEMORY);
+    let callers = test.gate.callers.lock().unwrap().clone();
+    assert_eq!(
+        callers,
+        [Caller {
+            pid: Some(std::process::id()),
+            uid: Some(unsafe { libc::geteuid() }),
+        }]
+    );
 }
 
 fn first_waiting(test: &Test) -> Value {

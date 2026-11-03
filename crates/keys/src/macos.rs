@@ -1,4 +1,4 @@
-use crate::{key_from, random_key, Key, MasterKey, Presence};
+use crate::{key_from, random_key, Caller, Key, MasterKey, Presence, TOUCH_ID};
 use anyhow::{anyhow, bail, Result};
 use block2::RcBlock;
 use objc2::runtime::Bool;
@@ -95,7 +95,7 @@ pub fn available() -> Result<bool> {
 }
 
 impl Presence for TouchId {
-    fn confirm(&self, action: &str, _passphrase: Option<&str>) -> Result<bool> {
+    fn confirm(&self, action: &str, _caller: &Caller, _passphrase: Option<&str>) -> Result<bool> {
         if action.trim().is_empty() {
             bail!("say what needs a human present");
         }
@@ -114,6 +114,10 @@ impl Presence for TouchId {
             }
         }
     }
+
+    fn kind(&self) -> &'static str {
+        TOUCH_ID
+    }
 }
 
 #[cfg(test)]
@@ -129,7 +133,9 @@ mod tests {
     #[test]
     #[ignore]
     fn a_touch_id_prompt_confirms() {
-        assert!(TouchId.confirm("test the ai2 vault prompt", None).unwrap());
+        assert!(TouchId
+            .confirm("test the ai2 vault prompt", &Caller::default(), None)
+            .unwrap());
     }
 
     #[test]
@@ -150,6 +156,6 @@ mod tests {
 
     #[test]
     fn an_empty_action_is_refused_before_any_prompt() {
-        assert!(TouchId.confirm("  ", None).is_err());
+        assert!(TouchId.confirm("  ", &Caller::default(), None).is_err());
     }
 }

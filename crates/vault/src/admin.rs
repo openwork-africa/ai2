@@ -6,6 +6,7 @@ use crate::policy;
 use crate::store::{Endpoint, KeyRecord, Mode, Sandbox, TokenRecord};
 use crate::time;
 use crate::vet::KeyInfo;
+use keys::Caller;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::net::IpAddr;
@@ -42,7 +43,7 @@ fn internal(error: anyhow::Error) -> Failure {
     fail(500, "internal", format!("{error:#}"))
 }
 
-pub fn route(vault: &Arc<Vault>, request: &Request) -> (u16, Value) {
+pub fn route(vault: &Arc<Vault>, request: &Request, caller: &Caller) -> (u16, Value) {
     let query = request.query().unwrap_or_default();
     let parts: Vec<&str> = request.path().trim_matches('/').split('/').collect();
     let method = request.method.as_str();
@@ -50,18 +51,18 @@ pub fn route(vault: &Arc<Vault>, request: &Request) -> (u16, Value) {
         ("GET", ["status"]) => Ok(status(vault)),
         ("GET", ["keys"]) => Ok(list_keys(vault)),
         ("GET", ["keys", name]) => get_key(vault, name),
-        ("PUT", ["keys", name]) => put_key(vault, name, request),
-        ("DELETE", ["keys", name]) => delete_key(vault, name, request),
-        ("POST", ["keys", name, "rotate"]) => rotate_key(vault, name, request),
+        ("PUT", ["keys", name]) => put_key(vault, name, request, caller),
+        ("DELETE", ["keys", name]) => delete_key(vault, name, request, caller),
+        ("POST", ["keys", name, "rotate"]) => rotate_key(vault, name, request, caller),
         ("POST", ["keys", name, "propose"]) => propose(vault, name, request),
         ("GET", ["tokens"]) => Ok(list_tokens(vault)),
-        ("POST", ["tokens"]) => create_token(vault, request),
-        ("DELETE", ["tokens", id]) => revoke_token(vault, id, request),
+        ("POST", ["tokens"]) => create_token(vault, request, caller),
+        ("DELETE", ["tokens", id]) => revoke_token(vault, id, request, caller),
         ("GET", ["sandboxes"]) => Ok(list_sandboxes(vault)),
-        ("POST", ["sandboxes"]) => add_sandbox(vault, request),
-        ("DELETE", ["sandboxes", name]) => remove_sandbox(vault, name, request),
+        ("POST", ["sandboxes"]) => add_sandbox(vault, request, caller),
+        ("DELETE", ["sandboxes", name]) => remove_sandbox(vault, name, request, caller),
         ("GET", ["approvals"]) => Ok(json!({ "approvals": vault.approvals.list() })),
-        ("POST", ["approvals", id]) => decide(vault, id, request),
+        ("POST", ["approvals", id]) => decide(vault, id, request, caller),
         ("GET", ["audit"]) => audit(vault, query),
         _ => Err(fail(
             404,
@@ -75,8 +76,8 @@ pub fn route(vault: &Arc<Vault>, request: &Request) -> (u16, Value) {
     }
 }
 
-fn present(vault: &Vault, request: &Request, action: &str) -> Result<(), Failure> {
-    if vault.present(request, action) {
+fn present(vault: &Vault, request: &Request, caller: &Caller, action: &str) -> Result<(), Failure> {
+    if vault.present(request, caller, action) {
         return Ok(());
     }
     Err(fail(
@@ -100,6 +101,7 @@ fn status(vault: &Vault) -> Value {
         "master_key": vault.has_master(),
         "platform": std::env::consts::OS,
         "version": env!("CARGO_PKG_VERSION"),
+        "presence": vault.presence_kind(),
     })
 }
 
@@ -148,7 +150,7 @@ fn checked_secret(secret: &str) -> Result<(), Failure> {
     Ok(())
 }
 
-fn put_key(vault: &Vault, name: &str, request: &Request) -> Reply {
+fn put_key(vault: &Vault, name: &str, request: &Request, caller: &Caller) -> Reply {
     checked_name(name)?;
     let put: PutKey = body(request)?;
     let put_secret = zeroize::Zeroizing::new(put.secret);
@@ -169,6 +171,7 @@ fn put_key(vault: &Vault, name: &str, request: &Request) -> Reply {
     present(
         vault,
         request,
+        caller,
         &format!(
             "{verb} the vault key {name}, to be sent only to {} as {inject}",
             listed(&put.approved_urls)
@@ -212,11 +215,12 @@ fn known_key(vault: &Vault, name: &str) -> Result<KeyRecord, Failure> {
         .ok_or_else(|| missing("vault key", name))
 }
 
-fn delete_key(vault: &Vault, name: &str, request: &Request) -> Reply {
+fn delete_key(vault: &Vault, name: &str, request: &Request, caller: &Caller) -> Reply {
     let key = known_key(vault, name)?;
     present(
         vault,
         request,
+        caller,
         &format!(
             "Delete the vault key {name}, which is sent to {}",
             listed(&key.approved_urls)
@@ -234,7 +238,7 @@ struct Rotate {
     secret: String,
 }
 
-fn rotate_key(vault: &Vault, name: &str, request: &Request) -> Reply {
+fn rotate_key(vault: &Vault, name: &str, request: &Request, caller: &Caller) -> Reply {
     let rotate: Rotate = body(request)?;
     let secret = zeroize::Zeroizing::new(rotate.secret);
     checked_secret(&secret)?;
@@ -242,6 +246,7 @@ fn rotate_key(vault: &Vault, name: &str, request: &Request) -> Reply {
     present(
         vault,
         request,
+        caller,
         &format!(
             "Replace the secret of the vault key {name}, which is sent to {}",
             listed(&known.approved_urls)
@@ -327,7 +332,7 @@ struct CreateToken {
     uses: Option<u64>,
 }
 
-fn create_token(vault: &Vault, request: &Request) -> Reply {
+fn create_token(vault: &Vault, request: &Request, caller: &Caller) -> Reply {
     let asked: CreateToken = body(request)?;
     if asked.keys.is_empty() {
         return Err(bad("a token needs at least one key"));
@@ -365,7 +370,7 @@ fn create_token(vault: &Vault, request: &Request) -> Reply {
         }
     }
     let action = token_action(&asked, &methods, intent.as_deref(), ttl);
-    present(vault, request, &action)?;
+    present(vault, request, caller, &action)?;
     let token = crypto::token().map_err(internal)?;
     let revoke = crypto::token().map_err(internal)?;
     let mut store = vault.store();
@@ -423,7 +428,7 @@ fn token_action(asked: &CreateToken, methods: &[String], intent: Option<&str>, t
     action
 }
 
-fn revoke_token(vault: &Vault, id: &str, request: &Request) -> Reply {
+fn revoke_token(vault: &Vault, id: &str, request: &Request, caller: &Caller) -> Reply {
     let token = vault
         .store()
         .token(id)
@@ -437,6 +442,7 @@ fn revoke_token(vault: &Vault, id: &str, request: &Request) -> Reply {
         present(
             vault,
             request,
+            caller,
             &format!(
                 "Revoke the vault token {id} for the keys {} in the sandbox {}",
                 listed(&token.keys),
@@ -467,7 +473,7 @@ struct AddSandbox {
     peers: Vec<IpAddr>,
 }
 
-fn add_sandbox(vault: &Arc<Vault>, request: &Request) -> Reply {
+fn add_sandbox(vault: &Arc<Vault>, request: &Request, caller: &Caller) -> Reply {
     let asked: AddSandbox = body(request)?;
     checked_name(&asked.name)?;
     if vault.store().sandbox(&asked.name).is_some() {
@@ -507,6 +513,7 @@ fn add_sandbox(vault: &Arc<Vault>, request: &Request) -> Reply {
     present(
         vault,
         request,
+        caller,
         &format!("Add the vault sandbox {} at {at}", asked.name),
     )?;
     let endpoint = vault
@@ -524,11 +531,12 @@ fn add_sandbox(vault: &Arc<Vault>, request: &Request) -> Reply {
     Ok(json!({ "sandbox": sandbox }))
 }
 
-fn remove_sandbox(vault: &Vault, name: &str, request: &Request) -> Reply {
+fn remove_sandbox(vault: &Vault, name: &str, request: &Request, caller: &Caller) -> Reply {
     if vault.store().sandbox(name).is_some() {
         present(
             vault,
             request,
+            caller,
             &format!("Remove the vault sandbox {name}; its tokens stop working"),
         )?;
     }
@@ -551,13 +559,13 @@ struct Decide {
     approve: bool,
 }
 
-fn decide(vault: &Vault, id: &str, request: &Request) -> Reply {
+fn decide(vault: &Vault, id: &str, request: &Request, caller: &Caller) -> Reply {
     let asked: Decide = body(request)?;
     let Some(line) = vault.approvals.line(id) else {
         return Err(missing("waiting call", id));
     };
     let verb = if asked.approve { "Allow" } else { "Refuse" };
-    present(vault, request, &format!("{verb} this call: {line}"))?;
+    present(vault, request, caller, &format!("{verb} this call: {line}"))?;
     if !vault.approvals.decide(id, asked.approve) {
         return Err(missing("waiting call", id));
     }

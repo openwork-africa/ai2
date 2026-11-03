@@ -11,6 +11,7 @@ mod policy;
 mod scrub;
 mod store;
 pub mod time;
+mod ttyagent;
 mod vet;
 mod with;
 

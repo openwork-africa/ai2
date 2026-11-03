@@ -1,13 +1,14 @@
 use crate::client;
 use crate::daemon::Config;
 use crate::policy::encode_percent;
+use crate::ttyagent;
 use crate::with::{self, With};
 use anyhow::{bail, Result};
 use clap::{ArgMatches, FromArgMatches, Subcommand};
 use keys::tty;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -267,6 +268,7 @@ fn usage(message: &str) -> i32 {
 pub struct Admin<'a> {
     opts: &'a Options,
     checked: Cell<bool>,
+    presence: RefCell<Option<String>>,
 }
 
 impl<'a> Admin<'a> {
@@ -274,6 +276,7 @@ impl<'a> Admin<'a> {
         Admin {
             opts,
             checked: Cell::new(false),
+            presence: RefCell::new(None),
         }
     }
 
@@ -284,6 +287,7 @@ impl<'a> Admin<'a> {
         let Ok((200, status)) = client::call(&self.opts.admin, "GET", "/status", None, &[]) else {
             return;
         };
+        *self.presence.borrow_mut() = status["presence"].as_str().map(String::from);
         let theirs = status["version"].as_str().unwrap_or("an unknown version");
         let ours = env!("CARGO_PKG_VERSION");
         if theirs != ours {
@@ -300,7 +304,12 @@ impl<'a> Admin<'a> {
         headers: &[(&str, &str)],
     ) -> Result<(u16, Value)> {
         self.check_version();
-        let passphrase = if present && self.opts.ask_passphrase {
+        let kind = self.presence.borrow().clone();
+        let asks = present && self.opts.ask_passphrase;
+        let _agent = (asks && kind.as_deref() == Some(keys::POLKIT))
+            .then(|| ttyagent::start(std::env::var_os("PATH").as_deref(), Path::new("/proc")))
+            .flatten();
+        let passphrase = if asks && kind.as_deref() != Some(keys::POLKIT) {
             Some(tty::hidden("Vault passphrase: ")?)
         } else {
             None

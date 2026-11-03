@@ -5,7 +5,7 @@ use crate::store::{Endpoint, Store};
 use crate::vet::Vetter;
 use crate::{admin, gateway};
 use anyhow::{anyhow, bail, Context, Result};
-use keys::Platform;
+use keys::{Caller, Platform};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -197,9 +197,16 @@ impl Vault {
         crypto::open(&*self.master()?, name, &sealed)
     }
 
-    pub fn present(&self, request: &Request, action: &str) -> bool {
+    pub fn present(&self, request: &Request, caller: &Caller, action: &str) -> bool {
         let passphrase = request.header("x-vault-passphrase");
-        matches!(self.platform.presence.confirm(action, passphrase), Ok(true))
+        matches!(
+            self.platform.presence.confirm(action, caller, passphrase),
+            Ok(true)
+        )
+    }
+
+    pub fn presence_kind(&self) -> &'static str {
+        self.platform.presence.kind()
     }
 
     fn refused(&self, sandbox: &str, uid: Option<u32>) {
@@ -295,13 +302,15 @@ fn accept(vault: Arc<Vault>, sandbox: String, bound: Bound, stop: Arc<AtomicBool
                     std::thread::sleep(Duration::from_millis(50));
                     continue;
                 };
-                let uid = peer_uid(&conn);
-                let user_ok = uid.is_some_and(|uid| vault.config.owners.contains(&uid));
+                let caller = peer(&conn);
+                let user_ok = caller
+                    .uid
+                    .is_some_and(|uid| vault.config.owners.contains(&uid));
                 if !user_ok {
-                    vault.refused(&sandbox, uid);
+                    vault.refused(&sandbox, caller.uid);
                 }
                 let _ = conn.set_read_timeout(Some(READ_TIMEOUT));
-                spawn(&vault, &sandbox, conn, true, user_ok);
+                spawn(&vault, &sandbox, conn, (true, user_ok), caller);
             }
             Bound::Tcp(listener, peers) => {
                 let accepted = listener.accept();
@@ -314,7 +323,7 @@ fn accept(vault: Arc<Vault>, sandbox: String, bound: Bound, stop: Arc<AtomicBool
                 };
                 let _ = conn.set_read_timeout(Some(READ_TIMEOUT));
                 let allowed = peers.contains(&canonical(peer.ip()));
-                spawn(&vault, &sandbox, conn, allowed, true);
+                spawn(&vault, &sandbox, conn, (allowed, true), Caller::default());
             }
         }
     }
@@ -324,16 +333,16 @@ fn spawn(
     vault: &Arc<Vault>,
     sandbox: &str,
     conn: impl Read + Write + Send + 'static,
-    allowed: bool,
-    user_ok: bool,
+    (allowed, user_ok): (bool, bool),
+    caller: Caller,
 ) {
     let vault = Arc::clone(vault);
     let sandbox = sandbox.to_string();
-    std::thread::spawn(move || handle(&vault, &sandbox, conn, allowed, user_ok));
+    std::thread::spawn(move || handle(&vault, &sandbox, conn, (allowed, user_ok), &caller));
 }
 
 #[cfg(target_os = "linux")]
-fn peer_uid(stream: &UnixStream) -> Option<u32> {
+fn peer(stream: &UnixStream) -> Caller {
     let mut cred = libc::ucred {
         pid: 0,
         uid: 0,
@@ -349,14 +358,38 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
             &mut len,
         )
     };
-    (read == 0).then_some(cred.uid)
+    if read != 0 {
+        return Caller::default();
+    }
+    Caller {
+        pid: u32::try_from(cred.pid).ok().filter(|pid| *pid > 0),
+        uid: Some(cred.uid),
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn peer_uid(stream: &UnixStream) -> Option<u32> {
+fn peer(stream: &UnixStream) -> Caller {
+    let fd = stream.as_raw_fd();
     let (mut uid, mut gid) = (0, 0);
-    let read = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
-    (read == 0).then_some(uid)
+    let read = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
+    let mut pid: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    let got_pid = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&mut pid as *mut libc::pid_t).cast(),
+            &mut len,
+        )
+    };
+    Caller {
+        pid: (got_pid == 0)
+            .then(|| u32::try_from(pid).ok())
+            .flatten()
+            .filter(|pid| *pid > 0),
+        uid: (read == 0).then_some(uid),
+    }
 }
 
 fn canonical(ip: IpAddr) -> IpAddr {
@@ -370,8 +403,8 @@ fn handle(
     vault: &Arc<Vault>,
     sandbox: &str,
     mut conn: impl Read + Write,
-    allowed: bool,
-    user_ok: bool,
+    (allowed, user_ok): (bool, bool),
+    caller: &Caller,
 ) {
     let request = match http::read_request(&mut conn) {
         Ok(request) => request,
@@ -389,7 +422,7 @@ fn handle(
         return;
     }
     if sandbox == ADMIN {
-        let (status, body) = admin::route(vault, &request);
+        let (status, body) = admin::route(vault, &request, caller);
         let _ = http::write_json(&mut conn, status, &body);
     } else {
         gateway::handle(vault, sandbox, allowed, request, &mut conn);
