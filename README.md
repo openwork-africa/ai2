@@ -73,7 +73,7 @@ In the page: **Vault**, then **Add key**.
 - The cog on the **Vault** page picks the model that checks each agent call before a key is used.
 - `ai2 doctor` checks it all in one table.
 
-![The Security page, with two reviews](.github/security.png)
+![The Security page, with two reviews](.github/security.jpg)
 
 ### Windows
 
@@ -94,6 +94,28 @@ Read https://raw.githubusercontent.com/openwork-africa/ai2/main/SKILL.md and set
 
 The agent installs `ai2`, runs setup and tells you when to approve, connects ai squared to itself over MCP, and then registers an app or runs a review.
 The steps it follows are in [`SKILL.md`](SKILL.md).
+
+## With Muse
+
+Install Claude Code as a harness, sign in, and give it the ai2 guide as a skill:
+
+```sh
+ai2 harness install claude
+ai2 harness sign-in claude
+ai2 skill install claude
+```
+
+Run Claude Code on a task in a folder, then review what it did:
+
+```sh
+ai2 run --harness claude --model opus --folder ./notes "Add a search box"
+```
+
+Or drive ai squared from inside Claude Code instead. Connect it over MCP (next section), then ask:
+
+```text
+Use ai2 to register the app in this folder, start it, and run a security review of my last change.
+```
 
 ## Connect an agent over MCP
 
