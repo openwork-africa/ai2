@@ -2,7 +2,9 @@ pub mod cli;
 pub mod job;
 pub mod line;
 pub mod list;
+pub mod settings;
 pub mod setup;
+pub mod skill;
 pub mod state;
 pub mod terminal;
 

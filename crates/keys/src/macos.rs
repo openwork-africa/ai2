@@ -1,9 +1,10 @@
-use crate::{key_from, random_key, Key, MasterKey, Presence};
+use crate::{key_from, random_key, Caller, Key, MasterKey, Presence, TOUCH_ID};
 use anyhow::{anyhow, bail, Result};
 use block2::RcBlock;
 use objc2::runtime::Bool;
 use objc2_foundation::{NSError, NSString};
 use objc2_local_authentication::{LAContext, LAPolicy};
+use security_framework::item::{ItemClass, ItemSearchOptions};
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::passwords::{get_generic_password, set_generic_password};
 use std::path::PathBuf;
@@ -48,6 +49,20 @@ impl Keychain {
         }
     }
 
+    fn find(&self) -> security_framework::base::Result<bool> {
+        let mut search = ItemSearchOptions::new();
+        search
+            .class(ItemClass::generic_password())
+            .service(&self.service)
+            .account(&self.account)
+            .load_attributes(true)
+            .limit(1);
+        if let Some(file) = &self.file {
+            search.keychains(&[SecKeychain::open(file)?]);
+        }
+        search.search().map(|found| !found.is_empty())
+    }
+
     fn set(&self, key: &[u8]) -> security_framework::base::Result<()> {
         match &self.file {
             None => set_generic_password(&self.service, &self.account, key),
@@ -60,8 +75,8 @@ impl Keychain {
 
 impl MasterKey for Keychain {
     fn exists(&self) -> Result<bool> {
-        match self.get() {
-            Ok(_) => Ok(true),
+        match self.find() {
+            Ok(found) => Ok(found),
             Err(error) if error.code() == NOT_FOUND => Ok(false),
             Err(error) => Err(anyhow!("reading the keychain: {error}")),
         }
@@ -95,7 +110,7 @@ pub fn available() -> Result<bool> {
 }
 
 impl Presence for TouchId {
-    fn confirm(&self, action: &str, _passphrase: Option<&str>) -> Result<bool> {
+    fn confirm(&self, action: &str, _caller: &Caller, _passphrase: Option<&str>) -> Result<bool> {
         if action.trim().is_empty() {
             bail!("say what needs a human present");
         }
@@ -114,6 +129,10 @@ impl Presence for TouchId {
             }
         }
     }
+
+    fn kind(&self) -> &'static str {
+        TOUCH_ID
+    }
 }
 
 #[cfg(test)]
@@ -129,7 +148,9 @@ mod tests {
     #[test]
     #[ignore]
     fn a_touch_id_prompt_confirms() {
-        assert!(TouchId.confirm("test the ai2 vault prompt", None).unwrap());
+        assert!(TouchId
+            .confirm("test the ai2 vault prompt", &Caller::default(), None)
+            .unwrap());
     }
 
     #[test]
@@ -150,6 +171,6 @@ mod tests {
 
     #[test]
     fn an_empty_action_is_refused_before_any_prompt() {
-        assert!(TouchId.confirm("  ", None).is_err());
+        assert!(TouchId.confirm("  ", &Caller::default(), None).is_err());
     }
 }

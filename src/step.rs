@@ -25,6 +25,9 @@ pub struct Context {
     pub model: Option<Model>,
     pub args: clap::ArgMatches,
     pub deadline: Option<Instant>,
+    pub providers: Option<PathBuf>,
+    pub reviewer: Option<String>,
+    pub reviewer_model: Option<String>,
 }
 
 impl Context {
@@ -36,8 +39,6 @@ impl Context {
             .map(|d| d.saturating_duration_since(Instant::now()))
     }
 }
-
-pub type Run = Context;
 
 #[derive(Default)]
 pub struct Found {
@@ -51,7 +52,7 @@ pub struct Rated {
     pub exploits: Vec<Exploit>,
     pub findings: Vec<Finding>,
     pub items: Vec<Item>,
-    pub harness: Option<&'static str>,
+    pub harness: Option<String>,
     pub notes: Vec<String>,
 }
 

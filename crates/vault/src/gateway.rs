@@ -90,7 +90,7 @@ pub fn handle(
         }
     };
     let token = bearer(&request).map(crypto::hash);
-    let (key, url) = target(&request.target, vault.config.allow_http);
+    let (key, url) = target(&request.target, &vault.config.plain_http);
     let call = Call {
         sandbox,
         method: &request.method,
@@ -145,7 +145,7 @@ fn bearer(request: &Request) -> Option<&str> {
         .filter(|t| !t.is_empty())
 }
 
-fn target(path: &str, allow_http: bool) -> (Option<String>, Option<String>) {
+fn target(path: &str, plain_http: &[String]) -> (Option<String>, Option<String>) {
     let Some(rest) = path.strip_prefix('/') else {
         return (None, None);
     };
@@ -161,7 +161,10 @@ fn target(path: &str, allow_http: bool) -> (Option<String>, Option<String>) {
     } else {
         format!("/{tail}")
     };
-    let scheme = if allow_http { "http" } else { "https" };
+    let plain = plain_http
+        .iter()
+        .any(|authority| authority.eq_ignore_ascii_case(host));
+    let scheme = if plain { "http" } else { "https" };
     (key, Some(format!("{scheme}://{host}{tail}")))
 }
 
@@ -212,8 +215,8 @@ fn decide(vault: &Vault, call: &Call) -> Result<Allowed, Denial> {
         return Err(with_intent("method_not_allowed"));
     }
     let url_text = call.url.ok_or_else(|| with_intent("url_not_allowed"))?;
-    let allow_http = vault.config.allow_http;
-    let url = policy::parse(url_text, allow_http).map_err(|_| with_intent("url_not_allowed"))?;
+    let http = vault.config.http_prefixes;
+    let url = policy::parse(url_text, http).map_err(|_| with_intent("url_not_allowed"))?;
     match token.mode {
         Mode::App => app_scope(vault, &token, &key, call, (url_text, &url), method_ok),
         Mode::Agent => agent_scope(vault, &token, &key, call, (url_text, &url)),
@@ -240,7 +243,7 @@ fn app_scope(
     } else {
         &token.url_prefixes
     };
-    if method_ok && policy::allowed(url, prefixes, vault.config.allow_http) {
+    if method_ok && policy::allowed(url, prefixes, vault.config.http_prefixes) {
         return Ok(());
     }
     let line = format!(
@@ -262,7 +265,7 @@ fn agent_scope(
     call: &Call,
     (url_text, url): (&str, &policy::Url),
 ) -> Result<(), &'static str> {
-    if !policy::allowed(url, &key.approved_urls, vault.config.allow_http) {
+    if !policy::allowed(url, &key.approved_urls, vault.config.http_prefixes) {
         return Err("url_not_allowed");
     }
     let intent = token.intent.clone().unwrap_or_default();
@@ -289,7 +292,7 @@ fn vet(
     url_text: &str,
     url: &policy::Url,
 ) -> Result<(), &'static str> {
-    let allow_http = vault.config.allow_http;
+    let http = vault.config.http_prefixes;
     let cached: Vec<String> = vault
         .store()
         .vetted
@@ -297,7 +300,7 @@ fn vet(
         .filter(|v| v.key == key.name && v.intent == intent)
         .map(|v| v.prefix.clone())
         .collect();
-    if policy::allowed(url, &cached, allow_http) {
+    if policy::allowed(url, &cached, http) {
         return Ok(());
     }
     let vetting = Vetting {
@@ -314,7 +317,7 @@ fn vet(
     if !verdict.allow {
         return Err("vetting_denied");
     }
-    if !policy::accepted_prefix(&verdict.prefix, url_text, allow_http) {
+    if !policy::accepted_prefix(&verdict.prefix, url_text, http) {
         return Err("vetting_unavailable");
     }
     let mut store = vault.store();
@@ -492,19 +495,24 @@ mod tests {
     #[test]
     fn the_path_names_the_key_and_where_the_call_goes() {
         let pair = |key: &str, url: &str| (Some(key.to_string()), Some(url.to_string()));
+        let local = ["127.0.0.1:9".to_string()];
         assert_eq!(
-            target("/stripe/api.stripe.com/v1/charges?limit=3", false),
+            target("/stripe/api.stripe.com/v1/charges?limit=3", &local),
             pair("stripe", "https://api.stripe.com/v1/charges?limit=3")
         );
         assert_eq!(
-            target("/k/127.0.0.1:9/x", true),
+            target("/k/127.0.0.1:9/x", &local),
             pair("k", "http://127.0.0.1:9/x")
         );
         assert_eq!(
-            target("/k/h.example?q=1", false),
+            target("/k/127.0.0.1:10/x", &local),
+            pair("k", "https://127.0.0.1:10/x")
+        );
+        assert_eq!(
+            target("/k/h.example?q=1", &[]),
             pair("k", "https://h.example/?q=1")
         );
-        assert_eq!(target("/k", false), (Some("k".into()), None));
-        assert_eq!(target("/", false), (None, None));
+        assert_eq!(target("/k", &[]), (Some("k".into()), None));
+        assert_eq!(target("/", &[]), (None, None));
     }
 }

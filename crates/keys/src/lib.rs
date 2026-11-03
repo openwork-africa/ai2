@@ -9,6 +9,7 @@ pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod passphrase;
+pub mod polkit;
 pub mod tty;
 
 pub const LINUX_CRED: &str = "/etc/ai2-vault/master.cred";
@@ -29,8 +30,20 @@ pub trait MasterKey: Send + Sync {
     fn load(&self) -> Result<Key>;
 }
 
+pub const TOUCH_ID: &str = "touch_id";
+pub const POLKIT: &str = "polkit";
+pub const PASSPHRASE: &str = "passphrase";
+pub const MEMORY: &str = "memory";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Caller {
+    pub pid: Option<u32>,
+    pub uid: Option<u32>,
+}
+
 pub trait Presence: Send + Sync {
-    fn confirm(&self, action: &str, passphrase: Option<&str>) -> Result<bool>;
+    fn confirm(&self, action: &str, caller: &Caller, passphrase: Option<&str>) -> Result<bool>;
+    fn kind(&self) -> &'static str;
 }
 
 pub struct Platform {
@@ -52,7 +65,10 @@ pub fn platform() -> Result<Platform> {
 pub fn platform() -> Result<Platform> {
     Ok(Platform {
         master: Box::new(linux::Creds::default()),
-        presence: Box::new(passphrase::Passphrase::new(LINUX_PASSPHRASE)),
+        presence: Box::new(polkit::PolkitOrPassphrase {
+            polkit: polkit::Polkit::default(),
+            passphrase: passphrase::Passphrase::new(LINUX_PASSPHRASE),
+        }),
     })
 }
 
@@ -102,8 +118,12 @@ pub struct MemoryPresence {
 }
 
 impl Presence for MemoryPresence {
-    fn confirm(&self, _action: &str, _passphrase: Option<&str>) -> Result<bool> {
+    fn confirm(&self, _action: &str, _caller: &Caller, _passphrase: Option<&str>) -> Result<bool> {
         Ok(self.present)
+    }
+
+    fn kind(&self) -> &'static str {
+        MEMORY
     }
 }
 

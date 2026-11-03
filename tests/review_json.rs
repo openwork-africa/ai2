@@ -17,7 +17,7 @@ fn review_json_has_the_shape_me_reads() {
         folder: "/tmp/x".into(),
         objective: "do it".into(),
         generated_at: "2026-11-02T00:00:00Z".into(),
-        harness: Some("pi"),
+        harness: Some("pi".into()),
         ratings: vec![Card {
             key: "msr",
             name: "Modern Security Rating",

@@ -91,7 +91,7 @@ impl Host {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fake"))]
 impl Host {
     pub fn mac(version: u32, arm64: bool) -> Self {
         Self {

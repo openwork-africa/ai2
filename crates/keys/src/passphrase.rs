@@ -1,4 +1,4 @@
-use crate::Presence;
+use crate::{Caller, Presence, PASSPHRASE};
 use anyhow::{anyhow, bail, Context, Result};
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
@@ -18,13 +18,17 @@ impl Passphrase {
 }
 
 impl Presence for Passphrase {
-    fn confirm(&self, _action: &str, passphrase: Option<&str>) -> Result<bool> {
+    fn confirm(&self, _action: &str, _caller: &Caller, passphrase: Option<&str>) -> Result<bool> {
         let Some(given) = passphrase else {
             return Ok(false);
         };
         let stored = std::fs::read_to_string(&self.hash)
             .with_context(|| format!("no passphrase is set at {}", self.hash.display()))?;
         verify(stored.trim(), given)
+    }
+
+    fn kind(&self) -> &'static str {
+        PASSPHRASE
     }
 }
 
@@ -93,12 +97,18 @@ mod tests {
             .starts_with("$argon2id$"));
         let presence = Passphrase::new(&path);
         assert!(presence
-            .confirm("delete stripe", Some("correct horse battery"))
+            .confirm(
+                "delete stripe",
+                &Caller::default(),
+                Some("correct horse battery")
+            )
             .unwrap());
         assert!(!presence
-            .confirm("delete stripe", Some("wrong one!"))
+            .confirm("delete stripe", &Caller::default(), Some("wrong one!"))
             .unwrap());
-        assert!(!presence.confirm("delete stripe", None).unwrap());
+        assert!(!presence
+            .confirm("delete stripe", &Caller::default(), None)
+            .unwrap());
     }
 
     #[test]
@@ -106,7 +116,9 @@ mod tests {
         assert!(hash("short").is_err());
         let dir = tempfile::tempdir().unwrap();
         let presence = Passphrase::new(dir.path().join("none"));
-        assert!(presence.confirm("x", Some("whatever long")).is_err());
+        assert!(presence
+            .confirm("x", &Caller::default(), Some("whatever long"))
+            .is_err());
     }
 
     #[test]

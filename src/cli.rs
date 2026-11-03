@@ -4,9 +4,7 @@ use crate::step::{Context, Found, Step};
 use crate::steps::{self, Msr};
 use crate::{model, scan};
 use anyhow::{bail, Context as _, Result};
-use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand as _};
-use harness::cli::{print, Context as HarnessContext, HarnessCommand};
-use harness::Registry;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
@@ -31,36 +29,8 @@ impl Build {
 pub trait Subcommand {
     fn command(&self) -> clap::Command;
     fn run(&self, matches: &ArgMatches) -> Result<ExitCode>;
-}
-
-pub struct HarnessSubcommand {
-    pub registry: Registry,
-    pub state: PathBuf,
-}
-impl HarnessSubcommand {
-    pub fn new(registry: Registry, state: PathBuf) -> Self {
-        Self { registry, state }
-    }
-}
-impl Subcommand for HarnessSubcommand {
-    fn command(&self) -> clap::Command {
-        harness_command()
-    }
-    fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
-        run_harness(self.registry.clone_for_run(), self.state.clone(), matches).map(exit_code)
-    }
-}
-
-trait RegistryRun {
-    fn clone_for_run(&self) -> Registry;
-}
-impl RegistryRun for Registry {
-    fn clone_for_run(&self) -> Registry {
-        let mut registry = Registry::default();
-        for setup in self.all() {
-            registry.put(setup.clone(), None);
-        }
-        registry
+    fn usage_exit(&self) -> Option<u8> {
+        None
     }
 }
 
@@ -168,15 +138,25 @@ pub fn exit_code(ok: bool) -> ExitCode {
     }
 }
 
+fn find<'a>(subcommands: &'a [Box<dyn Subcommand>], name: &str) -> Option<&'a dyn Subcommand> {
+    subcommands
+        .iter()
+        .find(|s| s.command().get_name() == name)
+        .map(|s| s.as_ref())
+}
+
 fn dispatch(subcommands: &[Box<dyn Subcommand>], name: &str, matches: &ArgMatches) -> ExitCode {
-    let Some(sub) = subcommands.iter().find(|s| s.command().get_name() == name) else {
-        print(&serde_json::json!({ "error": format!("unknown subcommand {name}") }));
+    let Some(sub) = find(subcommands, name) else {
+        println!(
+            "{}",
+            serde_json::json!({ "error": format!("unknown subcommand {name}") })
+        );
         return ExitCode::FAILURE;
     };
     match sub.run(matches) {
         Ok(code) => code,
         Err(error) => {
-            print(&serde_json::json!({ "error": error.to_string() }));
+            println!("{}", serde_json::json!({ "error": error.to_string() }));
             ExitCode::FAILURE
         }
     }
@@ -208,12 +188,14 @@ fn execute(
     {
         Ok(args) => args,
         Err(error) => {
-            let vault_usage =
-                error.use_stderr() && std::env::args().nth(1).as_deref() == Some("vault");
+            let usage = std::env::args()
+                .nth(1)
+                .and_then(|name| find(&subcommands, &name)?.usage_exit())
+                .filter(|_| error.use_stderr());
             let _ = error.print();
-            return Ok(match (vault_usage, error.exit_code()) {
-                (true, _) => ExitCode::from(vault::exit::USAGE as u8),
-                (false, code) => ExitCode::from(code as u8),
+            return Ok(match usage {
+                Some(code) => ExitCode::from(code),
+                None => ExitCode::from(error.exit_code() as u8),
             });
         }
     };
@@ -227,22 +209,25 @@ fn execute(
         .canonicalize()
         .with_context(|| format!("{} is not a folder", cli.run_path.display()))?;
     let mut notes = Vec::new();
+    let settings = Settings::load(&state_dir(build.name), &mut notes);
     let providers = providers_file(build.name, cli.providers.clone());
+    let model_name = settings.model(cli.model.clone());
     let model = providers
         .as_deref()
-        .map(|file| model::Model::load(file, cli.model.as_deref()))
+        .map(|file| model::Model::load(file, model_name.as_deref()))
         .transpose()
         .unwrap_or_else(|error| {
             notes.push(format!("No model: {error:#}"));
             None
-        });
+        })
+        .map(|model| through_gateway(build.name, model));
     if providers.is_none() {
         notes.push("No providers file: the steps that ask a model were left out.".into());
     }
     let out = cli
         .out
         .clone()
-        .unwrap_or_else(|| default_out(build, &folder));
+        .unwrap_or_else(|| default_out(build.name, &folder));
     progress("reading the folder and the environment");
     let spec = scan::scan_skipping(&folder, model.as_ref(), &mut notes, Some(&out));
     let deadline = Instant::now() + Duration::from_secs(cli.budget.saturating_mul(60));
@@ -256,6 +241,9 @@ fn execute(
         model,
         args,
         deadline: Some(deadline),
+        providers: cli.providers.clone(),
+        reviewer: settings.reviewer,
+        reviewer_model: settings.reviewer_model,
     };
     let mut provision_failed: Vec<Option<String>> = Vec::new();
     for step in &mut steps {
@@ -319,7 +307,7 @@ fn execute(
             &ctx,
             &ratings,
             &found,
-            chosen_harness,
+            chosen_harness.clone(),
             &notes,
         );
         if let Err(error) = write(&review, &out, !cli.disable_dashboard) {
@@ -358,7 +346,7 @@ fn make_review(
     ctx: &Context,
     ratings: &[Card],
     found: &Found,
-    harness: Option<&'static str>,
+    harness: Option<String>,
     notes: &[String],
 ) -> Review {
     let risks: Vec<(String, f64)> = found
@@ -375,7 +363,7 @@ fn make_review(
     Review {
         version: build.version,
         folder: folder.display().to_string(),
-        generated_at: vault::time::stamp(),
+        generated_at: crate::time::stamp(),
         harness,
         technologies: steps::technologies(&ctx.spec, &risks),
         ratings: ratings.to_vec(),
@@ -387,15 +375,13 @@ fn make_review(
     }
 }
 
-pub fn default_out(build: Build, folder: &Path) -> PathBuf {
+pub fn default_out(name: &str, folder: &Path) -> PathBuf {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in folder.display().to_string().bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    state_dir(build.name)
-        .join("reviews")
-        .join(format!("{hash:016x}"))
+    state_dir(name).join("reviews").join(format!("{hash:016x}"))
 }
 
 pub fn write(review: &Review, out: &Path, dashboard: bool) -> Result<PathBuf> {
@@ -408,29 +394,6 @@ pub fn write(review: &Review, out: &Path, dashboard: bool) -> Result<PathBuf> {
     Ok(out.join("report.html"))
 }
 
-pub fn harness_command() -> clap::Command {
-    HarnessCommand::augment_subcommands(
-        clap::Command::new("harness")
-            .about(
-                "Installs coding agents, signs in to them and prints their headless command lines",
-            )
-            .subcommand_required(true),
-    )
-}
-
-pub fn run_harness(registry: Registry, state: PathBuf, matches: &ArgMatches) -> Result<bool> {
-    let command = HarnessCommand::from_arg_matches(matches)?;
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default();
-    (HarnessContext {
-        registry,
-        home,
-        state,
-    })
-    .run(command)
-}
-
 pub fn providers_file(name: &str, given: Option<PathBuf>) -> Option<PathBuf> {
     given
         .or_else(|| {
@@ -440,11 +403,54 @@ pub fn providers_file(name: &str, given: Option<PathBuf>) -> Option<PathBuf> {
             ))
             .map(PathBuf::from)
         })
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join(format!(".{name}/providers.json")))
-                .filter(|p| p.is_file())
-        })
+        .or_else(|| Some(state_dir(name).join("providers.json")).filter(|p| p.is_file()))
+}
+
+#[derive(Default)]
+struct Settings {
+    reviewer: Option<String>,
+    reviewer_model: Option<String>,
+    model_name: Option<String>,
+}
+
+impl Settings {
+    fn model(&self, flag: Option<String>) -> Option<String> {
+        flag.or_else(|| self.model_name.clone())
+    }
+
+    #[cfg(feature = "harness")]
+    fn load(home: &Path, notes: &mut Vec<String>) -> Self {
+        use ::harness::settings::{model_name, Security, Settings as _};
+        let security = match Security::load(home) {
+            Ok(Some(security)) => security,
+            Ok(None) => return Self::default(),
+            Err(error) => {
+                notes.push(format!("The security settings were left out: {error:#}"));
+                return Self::default();
+            }
+        };
+        let model_name = model_name(security.provider.as_deref(), security.model.as_deref());
+        Self {
+            reviewer_model: security.model.clone().filter(|_| model_name.is_none()),
+            model_name,
+            reviewer: Some(security.reviewer),
+        }
+    }
+
+    #[cfg(not(feature = "harness"))]
+    fn load(_home: &Path, _notes: &mut [String]) -> Self {
+        Self::default()
+    }
+}
+
+#[cfg(feature = "vault")]
+fn through_gateway(name: &str, model: model::Model) -> model::Model {
+    model.with_gateway(crate::vault::gateway(state_dir(name)))
+}
+
+#[cfg(not(feature = "vault"))]
+fn through_gateway(_name: &str, model: model::Model) -> model::Model {
+    model
 }
 
 pub fn state_dir(name: &str) -> PathBuf {
@@ -513,10 +519,50 @@ mod tests {
             format!("{:?}", ExitCode::FAILURE)
         );
     }
+    #[cfg(feature = "harness")]
+    #[test]
+    fn the_security_settings_fill_in_what_the_flags_leave_out() {
+        let home = tempfile::tempdir().unwrap();
+        let mut notes = Vec::new();
+        let none = Settings::load(home.path(), &mut notes);
+        assert!(none.reviewer.is_none() && none.model(None).is_none());
+        std::fs::write(
+            home.path().join("security.json"),
+            r#"{"reviewer":"model","provider":"anthropic","model":"claude-x"}"#,
+        )
+        .unwrap();
+        let byok = Settings::load(home.path(), &mut notes);
+        assert_eq!(byok.reviewer.as_deref(), Some("model"));
+        assert_eq!(byok.model(None).as_deref(), Some("anthropic/claude-x"));
+        assert_eq!(byok.model(Some("a/b".into())).as_deref(), Some("a/b"));
+        assert!(byok.reviewer_model.is_none());
+        std::fs::write(
+            home.path().join("security.json"),
+            r#"{"reviewer":"claude","model":"opus"}"#,
+        )
+        .unwrap();
+        let harness = Settings::load(home.path(), &mut notes);
+        assert_eq!(harness.reviewer.as_deref(), Some("claude"));
+        assert_eq!(harness.reviewer_model.as_deref(), Some("opus"));
+        assert!(harness.model(None).is_none());
+        std::fs::write(home.path().join("security.json"), "nope").unwrap();
+        assert!(Settings::load(home.path(), &mut notes).reviewer.is_none());
+        assert_eq!(notes.len(), 1);
+    }
+
     #[test]
     fn the_default_out_is_outside_the_reviewed_folder() {
-        let out = default_out(Build::ai2(), Path::new("/tmp/example"));
+        let out = default_out("ai2", Path::new("/tmp/example"));
         assert!(!out.starts_with("/tmp/example"));
         assert!(out.to_string_lossy().contains("reviews"));
+    }
+
+    #[test]
+    fn a_renamed_build_resolves_under_its_own_home() {
+        std::env::set_var("ARA_HOME", "/tmp/ara-home-test");
+        let out = default_out("ara", Path::new("/tmp/example"));
+        std::env::remove_var("ARA_HOME");
+        assert!(out.starts_with("/tmp/ara-home-test/reviews"));
+        assert_ne!(out, default_out("ai2", Path::new("/tmp/example")));
     }
 }

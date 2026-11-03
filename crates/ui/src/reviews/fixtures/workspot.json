@@ -1,0 +1,72 @@
+{
+  "version": "0.1.2",
+  "folder": "/Users/rawk/Documents/openwork/example/workspot",
+  "objective": "Add a pricing page with three plans and a Stripe checkout button",
+  "generated_at": "2026-11-03T09:41:12Z",
+  "harness": "muse",
+  "ratings": [
+    {
+      "key": "msr",
+      "name": "Modern Security Rating",
+      "short": "MSR",
+      "riskier": false,
+      "rating": {
+        "name": "Modern Security Rating",
+        "short": "MSR",
+        "score": 82,
+        "factors": [
+          { "name": "Unexposed", "score": 70, "why": "The pricing page is public and posts to /api/checkout, which is reachable without a session." },
+          { "name": "Low severity", "score": 88, "why": "One medium advisory in the date library; nothing high or critical touches the changed files." },
+          { "name": "Patched", "score": 90, "why": "Every library with a recent advisory is on a fixed version except std/http, one patch behind." }
+        ]
+      },
+      "items": [
+        { "index": 0, "text": "Render the three plans from plans.json on /pricing", "score": 94, "factors": [ { "name": "Unexposed", "score": 92, "why": "Static content, no input." } ] },
+        { "index": 1, "text": "POST /api/checkout creates a Stripe session for the chosen plan", "score": 46, "factors": [ { "name": "Unexposed", "score": 40, "why": "Public endpoint that spends a Stripe API call per request." }, { "name": "Patched", "score": 80, "why": "stripe-node is current." } ] },
+        { "index": 2, "text": "Redirect to /thanks after payment", "score": 76, "factors": [ { "name": "Low severity", "score": 76, "why": "The redirect target is fixed, not taken from the query." } ] }
+      ]
+    },
+    {
+      "key": "rrf",
+      "name": "Run Risk Factor",
+      "short": "RRF",
+      "riskier": true,
+      "rating": {
+        "name": "Run Risk Factor",
+        "short": "RRF",
+        "score": 9,
+        "factors": [
+          { "name": "Impact", "score": 12, "why": "The worst open finding is a missing rate limit on checkout: cost, not data." },
+          { "name": "Likelihood", "score": 8, "why": "Abusing it needs a script and gains the attacker nothing." },
+          { "name": "Share of the run", "score": 6, "why": "One of the 14 changed lines carries the open finding." }
+        ]
+      }
+    }
+  ],
+  "technologies": [
+    { "name": "std/http", "kind": "library", "risk": 34 },
+    { "name": "stripe", "kind": "library", "risk": 29 },
+    { "name": "Deno", "kind": "runtime", "risk": 18 },
+    { "name": "date-fns", "kind": "library", "risk": 14 },
+    { "name": "TypeScript", "kind": "language", "risk": 5 }
+  ],
+  "exploits": [
+    { "id": "GHSA-7x9q-2m4f-vh3c", "technology": "std/http", "severity": "medium", "summary": "A crafted Range header makes serveDir read past the end of a file and return a 500.", "fixed_in": "1.0.11" },
+    { "id": "CVE-2026-41822", "technology": "date-fns", "severity": "low", "summary": "parseISO accepts a very long fraction and spends seconds on it.", "fixed_in": "4.1.2" },
+    { "id": "GHSA-p3hw-c8r2-9qjv", "technology": "stripe", "severity": "low", "summary": "Webhook signature errors leak the expected timestamp tolerance in the message.", "fixed_in": "" }
+  ],
+  "findings": [
+    { "title": "Checkout has no rate limit", "technology": "stripe", "file": "routes/api/checkout.ts:18", "severity": "medium", "likelihood": "low", "impact": "medium", "confidence": "high", "fix": "Limit POST /api/checkout to 10 a minute per address.", "status": "open" },
+    { "title": "Plan price trusted from the request body", "technology": "stripe", "file": "routes/api/checkout.ts:24", "severity": "high", "likelihood": "medium", "impact": "high", "confidence": "high", "fix": "Look the price up from plans.json by plan id instead of reading it from the body.", "status": "fixed" },
+    { "title": "Stripe key read at import time", "technology": "Deno", "file": "lib/stripe.ts:3", "severity": "informational", "likelihood": "low", "impact": "low", "confidence": "medium", "fix": "Read STRIPE_KEY on first use so a missing key fails the request, not the server.", "status": "fixed" }
+  ],
+  "spec": {
+    "os": "macOS 26.1 arm64",
+    "languages": [ { "name": "TypeScript", "lines": 4812, "share": 0.86 }, { "name": "CSS", "lines": 780, "share": 0.14 } ],
+    "libraries": [ { "name": "std/http", "version": "1.0.10", "ecosystem": "jsr" }, { "name": "stripe", "version": "17.4.0", "ecosystem": "npm" }, { "name": "date-fns", "version": "4.1.0", "ecosystem": "npm" } ]
+  },
+  "notes": [
+    "Exploits from the last 7 days: OSV and the GitHub advisory database.",
+    "Muse Code reviewed the 14 changed lines in 3 files."
+  ]
+}

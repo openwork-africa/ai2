@@ -1,68 +1,188 @@
+use crate::api::{
+    self, Approvals, Audit, Changed, Decided, Deleted, Error, KeyOut, KeyView, Keys, NewToken,
+    NewTokens, Proposed, Removed, Results, Revoked, RevokedMany, SandboxOut, Sandboxes, Status,
+    Tokens,
+};
+use crate::changes::{
+    self, Action, AddSandbox, Batch, CreateToken, Name, NamedKey, NamedRotate, PutKey, Rotate,
+    TokenId,
+};
 use crate::crypto;
-use crate::daemon::Vault;
-use crate::http::{self, Request};
-use crate::inject::{self, Inject};
+use crate::daemon::{Absent, Vault};
+use crate::http::Request;
+use crate::openapi;
 use crate::policy;
 use crate::store::{Endpoint, KeyRecord, Mode, Sandbox, TokenRecord};
-use crate::time;
 use crate::vet::KeyInfo;
+use keys::Caller;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::net::IpAddr;
 use std::sync::Arc;
-
-const AGENT_TTL: &str = "8h";
-const APP_TTL: &str = "30d";
+use utoipa::{OpenApi, ToSchema};
 
 pub struct Failure {
     status: u16,
     code: &'static str,
     message: String,
+    seconds: Option<u64>,
 }
 
 type Reply = Result<Value, Failure>;
 
-fn fail(status: u16, code: &'static str, message: impl Into<String>) -> Failure {
+pub fn fail(status: u16, code: &'static str, message: impl Into<String>) -> Failure {
     Failure {
         status,
         code,
         message: message.into(),
+        seconds: None,
     }
 }
 
-fn missing(what: &str, name: &str) -> Failure {
+pub fn missing(what: &str, name: &str) -> Failure {
     fail(404, "not_found", format!("there is no {what} {name}"))
 }
 
-fn bad(message: impl Into<String>) -> Failure {
+pub fn bad(message: impl Into<String>) -> Failure {
     fail(400, "bad_request", message)
 }
 
-fn internal(error: anyhow::Error) -> Failure {
+pub fn internal(error: anyhow::Error) -> Failure {
     fail(500, "internal", format!("{error:#}"))
 }
 
-pub fn route(vault: &Arc<Vault>, request: &Request) -> (u16, Value) {
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "ai2 vault admin",
+        description = "The vault daemon's admin socket. Changes need a human present: Touch ID on macOS, polkit or X-Vault-Passphrase on Linux."
+    ),
+    paths(
+        status,
+        list_keys,
+        put_keys,
+        get_key,
+        put_key,
+        delete_key,
+        rotate_key,
+        propose,
+        list_tokens,
+        create_tokens,
+        revoke_tokens,
+        revoke_token,
+        list_sandboxes,
+        add_sandboxes,
+        remove_sandbox,
+        batch,
+        list_approvals,
+        decide,
+        audit,
+        admin_document,
+        gateway_document
+    ),
+    components(schemas(
+        Status,
+        Keys,
+        KeyOut,
+        KeyView,
+        NewToken,
+        NewTokens,
+        Tokens,
+        Sandboxes,
+        SandboxOut,
+        Sandbox,
+        Endpoint,
+        Mode,
+        Deleted,
+        Revoked,
+        RevokedMany,
+        Removed,
+        Changed,
+        Results,
+        Proposed,
+        Approvals,
+        Decided,
+        Audit,
+        Error,
+        PutKey,
+        NamedKey,
+        Rotate,
+        CreateToken,
+        AddSandbox,
+        Action,
+        Batch,
+        Propose,
+        Decide,
+        TokenBody,
+        SandboxBody
+    ))
+)]
+struct Document;
+
+pub fn document() -> utoipa::openapi::OpenApi {
+    Document::openapi()
+}
+
+struct Asked<'a> {
+    vault: &'a Arc<Vault>,
+    request: &'a Request,
+    caller: &'a Caller,
+}
+
+impl Asked<'_> {
+    fn present(&self, action: &str) -> Result<(), Failure> {
+        present(self.vault, self.request, self.caller, action)
+    }
+
+    fn change(&self, actions: Vec<Action>) -> Result<Vec<Value>, Failure> {
+        changes::run(self.vault, actions, |action| self.present(action))
+    }
+
+    fn one(&self, action: Action) -> Reply {
+        Ok(self.change(vec![action])?.swap_remove(0))
+    }
+
+    fn many(&self, actions: Vec<Action>, field: &str, part: Option<&str>) -> Reply {
+        let outs = self.change(actions)?;
+        let outs: Vec<Value> = match part {
+            Some(part) => outs.into_iter().map(|mut out| out[part].take()).collect(),
+            None => outs,
+        };
+        Ok(json!({ field: outs }))
+    }
+}
+
+pub fn route(vault: &Arc<Vault>, request: &Request, caller: &Caller) -> (u16, Value) {
+    let asked = Asked {
+        vault,
+        request,
+        caller,
+    };
     let query = request.query().unwrap_or_default();
     let parts: Vec<&str> = request.path().trim_matches('/').split('/').collect();
     let method = request.method.as_str();
     let reply = match (method, parts.as_slice()) {
         ("GET", ["status"]) => Ok(status(vault)),
         ("GET", ["keys"]) => Ok(list_keys(vault)),
+        ("PUT", ["keys"]) => put_keys(&asked),
         ("GET", ["keys", name]) => get_key(vault, name),
-        ("PUT", ["keys", name]) => put_key(vault, name, request),
-        ("DELETE", ["keys", name]) => delete_key(vault, name, request),
-        ("POST", ["keys", name, "rotate"]) => rotate_key(vault, name, request),
+        ("PUT", ["keys", name]) => put_key(&asked, name),
+        ("DELETE", ["keys", name]) => delete_key(&asked, name),
+        ("POST", ["keys", name, "rotate"]) => rotate_key(&asked, name),
         ("POST", ["keys", name, "propose"]) => propose(vault, name, request),
         ("GET", ["tokens"]) => Ok(list_tokens(vault)),
-        ("POST", ["tokens"]) => create_token(vault, request),
-        ("DELETE", ["tokens", id]) => revoke_token(vault, id, request),
+        ("POST", ["tokens"]) => create_tokens(&asked),
+        ("DELETE", ["tokens"]) => revoke_tokens(&asked),
+        ("DELETE", ["tokens", id]) => revoke_token(&asked, id),
         ("GET", ["sandboxes"]) => Ok(list_sandboxes(vault)),
-        ("POST", ["sandboxes"]) => add_sandbox(vault, request),
-        ("DELETE", ["sandboxes", name]) => remove_sandbox(vault, name, request),
-        ("GET", ["approvals"]) => Ok(json!({ "approvals": vault.approvals.list() })),
-        ("POST", ["approvals", id]) => decide(vault, id, request),
+        ("POST", ["sandboxes"]) => add_sandboxes(&asked),
+        ("DELETE", ["sandboxes", name]) => remove_sandbox(&asked, name),
+        ("POST", ["batch"]) => batch(&asked),
+        ("GET", ["approvals"]) => Ok(list_approvals(vault)),
+        ("POST", ["approvals", id]) => decide(&asked, id),
         ("GET", ["audit"]) => audit(vault, query),
+        ("GET", ["openapi.json"]) => Ok(admin_document()),
+        ("GET", ["openapi", "gateway.json"]) => Ok(gateway_document()),
         _ => Err(fail(
             404,
             "not_found",
@@ -71,35 +191,98 @@ pub fn route(vault: &Arc<Vault>, request: &Request) -> (u16, Value) {
     };
     match reply {
         Ok(value) => (200, value),
-        Err(failure) => (failure.status, http::error(failure.code, &failure.message)),
+        Err(failure) => (
+            failure.status,
+            api::value(Error {
+                error: failure.code.to_string(),
+                message: failure.message,
+                seconds: failure.seconds,
+            }),
+        ),
     }
 }
 
-fn present(vault: &Vault, request: &Request, action: &str) -> Result<(), Failure> {
-    if vault.present(request, action) {
-        return Ok(());
-    }
-    Err(fail(
-        401,
-        "presence_required",
-        format!("{action}: needs you present"),
-    ))
+fn present(vault: &Vault, request: &Request, caller: &Caller, action: &str) -> Result<(), Failure> {
+    vault
+        .present(request, caller, action)
+        .map_err(|absent| match absent {
+            Absent::No => fail(
+                401,
+                "presence_required",
+                format!("{action}: needs you present"),
+            ),
+            Absent::Busy => fail(409, "busy", "another vault prompt is open; answer it first"),
+            Absent::Throttled(left) => {
+                let seconds = left.as_millis().div_ceil(1000) as u64;
+                Failure {
+                    seconds: Some(seconds),
+                    ..fail(
+                        429,
+                        "throttled",
+                        format!("too many refused prompts: try again in {seconds}s"),
+                    )
+                }
+            }
+        })
 }
 
-fn listed(items: &[String]) -> String {
+pub fn listed(items: &[String]) -> String {
     items.join(", ")
 }
 
-fn body<T: for<'de> Deserialize<'de>>(request: &Request) -> Result<T, Failure> {
-    let value = request.json().map_err(|e| bad(e.to_string()))?;
+fn parse<T: DeserializeOwned>(value: Value) -> Result<T, Failure> {
     serde_json::from_value(value).map_err(|e| bad(e.to_string()))
 }
 
+fn body<T: DeserializeOwned>(request: &Request) -> Result<T, Failure> {
+    parse(request.json().map_err(|e| bad(e.to_string()))?)
+}
+
+enum Shape {
+    One(Value),
+    Many(Vec<Value>),
+}
+
+fn shape(request: &Request) -> Result<Shape, Failure> {
+    match request.json().map_err(|e| bad(e.to_string()))? {
+        Value::Array(items) => Ok(Shape::Many(items)),
+        one => Ok(Shape::One(one)),
+    }
+}
+
+fn list<T: DeserializeOwned>(request: &Request, what: &str) -> Result<Vec<T>, Failure> {
+    match shape(request)? {
+        Shape::Many(items) => items.into_iter().map(parse).collect(),
+        Shape::One(_) => Err(bad(format!("the body is a list of {what}"))),
+    }
+}
+
+#[derive(ToSchema)]
+#[allow(dead_code)]
+enum TokenBody {
+    One(CreateToken),
+    Many(Vec<CreateToken>),
+}
+
+#[derive(ToSchema)]
+#[allow(dead_code)]
+enum SandboxBody {
+    One(AddSandbox),
+    Many(Vec<AddSandbox>),
+}
+
+#[utoipa::path(
+    get,
+    path = "/status",
+    description = "Whether the master key is loaded, the platform, the daemon's version and how it checks presence (touch_id, polkit, passphrase)",
+    responses((status = 200, body = Status))
+)]
 fn status(vault: &Vault) -> Value {
-    json!({
-        "master_key": vault.has_master(),
-        "platform": std::env::consts::OS,
-        "version": env!("CARGO_PKG_VERSION"),
+    api::value(Status {
+        master_key: vault.has_master(),
+        platform: std::env::consts::OS.to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        presence: vault.presence_kind().to_string(),
     })
 }
 
@@ -112,7 +295,7 @@ fn valid_name(name: &str) -> bool {
         && !name.starts_with('.')
 }
 
-fn checked_name(name: &str) -> Result<(), Failure> {
+pub fn checked_name(name: &str) -> Result<(), Failure> {
     if valid_name(name) {
         Ok(())
     } else {
@@ -122,151 +305,137 @@ fn checked_name(name: &str) -> Result<(), Failure> {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys",
+    description = "The keys' names and metadata, never their secrets",
+    responses((status = 200, body = Keys))
+)]
 fn list_keys(vault: &Vault) -> Value {
-    let keys: Vec<Value> = vault.store().keys.iter().map(KeyRecord::public).collect();
-    json!({ "keys": keys })
+    let keys = vault.store().keys.iter().map(KeyRecord::view).collect();
+    api::value(Keys { keys })
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/{name}",
+    params(("name" = String, Path)),
+    responses((status = 200, body = KeyOut), (status = 404, body = Error))
+)]
 fn get_key(vault: &Vault, name: &str) -> Reply {
-    known_key(vault, name).map(|key| json!({ "key": key.public() }))
-}
-
-#[derive(Deserialize)]
-struct PutKey {
-    secret: String,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    approved_urls: Vec<String>,
-    inject: Option<String>,
-}
-
-fn checked_secret(secret: &str) -> Result<(), Failure> {
-    if secret.is_empty() || secret.contains(['\r', '\n', '\0']) {
-        return Err(bad("the secret is empty or has a line break"));
-    }
-    Ok(())
-}
-
-fn put_key(vault: &Vault, name: &str, request: &Request) -> Reply {
-    checked_name(name)?;
-    let put: PutKey = body(request)?;
-    let put_secret = zeroize::Zeroizing::new(put.secret);
-    checked_secret(&put_secret)?;
-    let inject = put.inject.unwrap_or_else(|| inject::DEFAULT.into());
-    Inject::parse(&inject).map_err(|e| bad(e.to_string()))?;
-    if put.approved_urls.is_empty() {
-        return Err(bad("a key needs at least one approved URL"));
-    }
-    for url in &put.approved_urls {
-        policy::parse(url, vault.config.allow_http).map_err(|e| bad(e.to_string()))?;
-    }
-    let verb = if vault.store().key(name).is_some() {
-        "Replace"
-    } else {
-        "Store"
-    };
-    present(
-        vault,
-        request,
-        &format!(
-            "{verb} the vault key {name}, to be sent only to {} as {inject}",
-            listed(&put.approved_urls)
-        ),
-    )?;
-    let sealed = crypto::seal(
-        &*vault.master().map_err(internal)?,
-        name,
-        put_secret.as_bytes(),
-    )
-    .map_err(internal)?;
-    let mut store = vault.store();
-    let created = store
-        .key(name)
-        .map(|key| key.created.clone())
-        .unwrap_or_else(time::stamp);
-    let rotated = store.key(name).map(|_| time::stamp());
-    let record = KeyRecord {
-        name: name.into(),
-        description: put.description,
-        approved_urls: put.approved_urls,
-        inject,
-        created,
-        rotated,
-        nonce: sealed.nonce,
-        secret: sealed.secret,
-    };
-    let public = record.public();
-    store.forget_key(name);
-    store.keys.push(record);
-    store.save("keys", &store.keys).map_err(internal)?;
-    store.save("vetted", &store.vetted).map_err(internal)?;
-    Ok(json!({ "key": public }))
-}
-
-fn known_key(vault: &Vault, name: &str) -> Result<KeyRecord, Failure> {
     vault
         .store()
         .key(name)
-        .cloned()
+        .map(|key| api::value(KeyOut { key: key.view() }))
         .ok_or_else(|| missing("vault key", name))
 }
 
-fn delete_key(vault: &Vault, name: &str, request: &Request) -> Reply {
-    let key = known_key(vault, name)?;
-    present(
-        vault,
-        request,
-        &format!(
-            "Delete the vault key {name}, which is sent to {}",
-            listed(&key.approved_urls)
-        ),
-    )?;
-    let mut store = vault.store();
-    store.forget_key(name);
-    store.save("keys", &store.keys).map_err(internal)?;
-    store.save("vetted", &store.vetted).map_err(internal)?;
-    Ok(json!({ "deleted": name }))
+#[utoipa::path(
+    put,
+    path = "/keys/{name}",
+    description = "Stores or replaces a key; needs presence",
+    params(("name" = String, Path), ("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = PutKey,
+    responses(
+        (status = 200, body = KeyOut),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn put_key(asked: &Asked, name: &str) -> Reply {
+    checked_name(name)?;
+    let key: PutKey = body(asked.request)?;
+    asked.one(Action::PutKey(NamedKey {
+        name: name.to_string(),
+        key,
+    }))
 }
 
-#[derive(Deserialize)]
-struct Rotate {
-    secret: String,
+#[utoipa::path(
+    put,
+    path = "/keys",
+    description = "Stores or replaces several keys with one prompt, all or none",
+    params(("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = Vec<NamedKey>,
+    responses(
+        (status = 200, body = Keys),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn put_keys(asked: &Asked) -> Reply {
+    let keys: Vec<NamedKey> = list(asked.request, "keys, each with its name")?;
+    asked.many(
+        keys.into_iter().map(Action::PutKey).collect(),
+        "keys",
+        Some("key"),
+    )
 }
 
-fn rotate_key(vault: &Vault, name: &str, request: &Request) -> Reply {
-    let rotate: Rotate = body(request)?;
-    let secret = zeroize::Zeroizing::new(rotate.secret);
-    checked_secret(&secret)?;
-    let known = known_key(vault, name)?;
-    present(
-        vault,
-        request,
-        &format!(
-            "Replace the secret of the vault key {name}, which is sent to {}",
-            listed(&known.approved_urls)
-        ),
-    )?;
-    let sealed = crypto::seal(&*vault.master().map_err(internal)?, name, secret.as_bytes())
-        .map_err(internal)?;
-    let mut store = vault.store();
-    let Some(key) = store.keys.iter_mut().find(|key| key.name == name) else {
-        return Err(missing("vault key", name));
-    };
-    key.nonce = sealed.nonce;
-    key.secret = sealed.secret;
-    key.rotated = Some(time::stamp());
-    let public = key.public();
-    store.save("keys", &store.keys).map_err(internal)?;
-    Ok(json!({ "key": public }))
+#[utoipa::path(
+    delete,
+    path = "/keys/{name}",
+    description = "Deletes a key; needs presence",
+    params(("name" = String, Path), ("X-Vault-Passphrase" = Option<String>, Header)),
+    responses(
+        (status = 200, body = Deleted),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn delete_key(asked: &Asked, name: &str) -> Reply {
+    asked.one(Action::DeleteKey(Name {
+        name: name.to_string(),
+    }))
 }
 
-#[derive(Deserialize)]
+#[utoipa::path(
+    post,
+    path = "/keys/{name}/rotate",
+    description = "Replaces a key's secret; needs presence",
+    params(("name" = String, Path), ("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = Rotate,
+    responses(
+        (status = 200, body = KeyOut),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn rotate_key(asked: &Asked, name: &str) -> Reply {
+    let rotate: Rotate = body(asked.request)?;
+    asked.one(Action::RotateKey(NamedRotate {
+        name: name.to_string(),
+        secret: rotate.secret,
+    }))
+}
+
+#[derive(Deserialize, ToSchema)]
 struct Propose {
     #[serde(default)]
     description: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/keys/{name}/propose",
+    description = "Asks the vetting model for approved URLs from the key's description",
+    params(("name" = String, Path)),
+    request_body = Propose,
+    responses(
+        (status = 200, body = Proposed),
+        (status = 400, body = Error),
+        (status = 503, body = Error)
+    )
+)]
 fn propose(vault: &Vault, name: &str, request: &Request) -> Reply {
     checked_name(name)?;
     let asked: Propose = body(request)?;
@@ -290,280 +459,270 @@ fn propose(vault: &Vault, name: &str, request: &Request) -> Reply {
         .vetter()
         .propose(&info)
         .map_err(|e| fail(503, "vetting_unavailable", format!("{e:#}")))?;
-    let prefixes: Vec<String> = proposed
+    let approved_urls = proposed
         .into_iter()
-        .filter(|p| policy::parse(p, vault.config.allow_http).is_ok())
+        .filter(|p| policy::parse(p, vault.config.http_prefixes).is_ok())
         .collect();
-    Ok(json!({ "name": name, "approved_urls": prefixes }))
+    Ok(api::value(Proposed {
+        name: name.to_string(),
+        approved_urls,
+    }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/tokens",
+    description = "The tokens, never the token values",
+    responses((status = 200, body = Tokens))
+)]
 fn list_tokens(vault: &Vault) -> Value {
-    let tokens: Vec<Value> = vault
-        .store()
-        .tokens
-        .iter()
-        .map(TokenRecord::public)
-        .collect();
-    json!({ "tokens": tokens })
+    let tokens = vault.store().tokens.iter().map(TokenRecord::view).collect();
+    api::value(Tokens { tokens })
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Methods {
-    One(String),
-    Many(Vec<String>),
-}
-
-#[derive(Deserialize)]
-struct CreateToken {
-    keys: Vec<String>,
-    sandbox: String,
-    mode: Mode,
-    methods: Option<Methods>,
-    #[serde(default)]
-    url_prefixes: Vec<String>,
-    intent: Option<String>,
-    ttl: Option<String>,
-    uses: Option<u64>,
-}
-
-fn create_token(vault: &Vault, request: &Request) -> Reply {
-    let asked: CreateToken = body(request)?;
-    if asked.keys.is_empty() {
-        return Err(bad("a token needs at least one key"));
-    }
-    let spec = match &asked.methods {
-        Some(Methods::One(spec)) => spec.clone(),
-        Some(Methods::Many(list)) => list.join(","),
-        None => "read".into(),
-    };
-    let methods = policy::methods(&spec).map_err(|e| bad(e.to_string()))?;
-    let intent = asked.intent.clone().filter(|i| !i.trim().is_empty());
-    if asked.mode == Mode::Agent && intent.is_none() {
-        return Err(bad("an agent token needs --intent"));
-    }
-    if asked.uses == Some(0) {
-        return Err(bad("--uses must be at least 1"));
-    }
-    for prefix in &asked.url_prefixes {
-        policy::parse(prefix, vault.config.allow_http).map_err(|e| bad(e.to_string()))?;
-    }
-    let default_ttl = if asked.mode == Mode::Agent {
-        AGENT_TTL
-    } else {
-        APP_TTL
-    };
-    let ttl =
-        time::ttl(asked.ttl.as_deref().unwrap_or(default_ttl)).map_err(|e| bad(e.to_string()))?;
-    {
-        let store = vault.store();
-        if store.sandbox(&asked.sandbox).is_none() {
-            return Err(missing("sandbox", &asked.sandbox));
-        }
-        if let Some(absent) = asked.keys.iter().find(|k| store.key(k).is_none()) {
-            return Err(missing("vault key", absent));
+#[utoipa::path(
+    post,
+    path = "/tokens",
+    description = "Makes a token, or several with one prompt (a list body, answered as {\"tokens\": [...]}); needs presence. The token and its revoke value are shown once.",
+    params(("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = TokenBody,
+    responses(
+        (status = 200, body = NewToken),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn create_tokens(asked: &Asked) -> Reply {
+    match shape(asked.request)? {
+        Shape::One(one) => asked.one(Action::CreateToken(parse::<CreateToken>(one)?)),
+        Shape::Many(items) => {
+            let tokens = items
+                .into_iter()
+                .map(|item| parse(item).map(Action::CreateToken))
+                .collect::<Result<Vec<_>, _>>()?;
+            asked.many(tokens, "tokens", None)
         }
     }
-    let action = token_action(&asked, &methods, intent.as_deref(), ttl);
-    present(vault, request, &action)?;
-    let token = crypto::token().map_err(internal)?;
-    let revoke = crypto::token().map_err(internal)?;
-    let mut store = vault.store();
-    let now = time::now();
-    let record = TokenRecord {
-        id: crypto::id("tok_").map_err(internal)?,
-        hash: crypto::hash(&token),
-        keys: asked.keys,
-        sandbox: asked.sandbox,
-        mode: asked.mode,
-        methods,
-        url_prefixes: asked.url_prefixes,
-        intent,
-        created: now,
-        expires: now.saturating_add(ttl),
-        uses: asked.uses,
-        revoke: Some(crypto::hash(&revoke)),
-    };
-    let mut out = record.public();
-    out["token"] = json!(token.as_str());
-    out["revoke"] = json!(revoke.as_str());
-    if record.sandbox == "host" && cfg!(target_os = "macos") {
-        out["warnings"] = json!([
-            "Not safe: a host token works for any process on this Mac, outside a container."
-        ]);
-    }
-    store.tokens.push(record);
-    store.save("tokens", &store.tokens).map_err(internal)?;
-    Ok(out)
 }
 
-fn token_action(asked: &CreateToken, methods: &[String], intent: Option<&str>, ttl: u64) -> String {
-    let mode = match asked.mode {
-        Mode::App => "app",
-        Mode::Agent => "agent",
-    };
-    let urls = if asked.url_prefixes.is_empty() {
-        "the keys' approved URLs".to_string()
-    } else {
-        listed(&asked.url_prefixes)
-    };
-    let mut action = format!(
-        "Make an {mode} token for the keys {} in the sandbox {}: methods {}, URLs {urls}, for {}",
-        listed(&asked.keys),
-        asked.sandbox,
-        listed(methods),
-        time::span(ttl)
-    );
-    if let Some(uses) = asked.uses {
-        action.push_str(&format!(", {uses} uses"));
-    }
-    if let Some(intent) = intent {
-        action.push_str(&format!(", intent: \"{intent}\""));
-    }
-    action
-}
-
-fn revoke_token(vault: &Vault, id: &str, request: &Request) -> Reply {
-    let token = vault
-        .store()
-        .token(id)
-        .cloned()
-        .ok_or_else(|| missing("token", id))?;
-    let own = request
+#[utoipa::path(
+    delete,
+    path = "/tokens/{id}",
+    description = "Revokes a token; needs presence unless X-Vault-Revoke carries the token's revoke value",
+    params(
+        ("id" = String, Path),
+        ("X-Vault-Revoke" = Option<String>, Header),
+        ("X-Vault-Passphrase" = Option<String>, Header)
+    ),
+    responses(
+        (status = 200, body = Revoked),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn revoke_token(asked: &Asked, id: &str) -> Reply {
+    let own = asked
+        .request
         .header("x-vault-revoke")
         .map(crypto::hash)
-        .is_some_and(|hash| token.revoke.as_deref() == Some(hash.as_str()));
+        .is_some_and(|hash| {
+            asked
+                .vault
+                .store()
+                .token(id)
+                .is_some_and(|token| token.revoke.as_deref() == Some(hash.as_str()))
+        });
+    let action = Action::RevokeToken(TokenId { id: id.to_string() });
     if !own {
-        present(
-            vault,
-            request,
-            &format!(
-                "Revoke the vault token {id} for the keys {} in the sandbox {}",
-                listed(&token.keys),
-                token.sandbox
-            ),
-        )?;
+        return asked.one(action);
     }
-    let mut store = vault.store();
-    let before = store.tokens.len();
-    store.tokens.retain(|t| t.id != id);
-    if store.tokens.len() == before {
-        return Err(missing("token", id));
-    }
-    store.save("tokens", &store.tokens).map_err(internal)?;
-    Ok(json!({ "revoked": id }))
+    Ok(changes::run(asked.vault, vec![action], |_| Ok(()))?.swap_remove(0))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/tokens",
+    description = "Revokes several tokens with one prompt, all or none",
+    params(("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = Vec<String>,
+    responses(
+        (status = 200, body = RevokedMany),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn revoke_tokens(asked: &Asked) -> Reply {
+    let ids: Vec<String> = list(asked.request, "token ids")?;
+    asked.many(
+        ids.into_iter()
+            .map(|id| Action::RevokeToken(TokenId { id }))
+            .collect(),
+        "revoked",
+        Some("revoked"),
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/sandboxes",
+    responses((status = 200, body = Sandboxes))
+)]
 fn list_sandboxes(vault: &Vault) -> Value {
-    json!({ "sandboxes": vault.store().sandboxes })
+    api::value(Sandboxes {
+        sandboxes: vault.store().sandboxes.clone(),
+    })
 }
 
-#[derive(Deserialize)]
-struct AddSandbox {
-    name: String,
-    socket: Option<std::path::PathBuf>,
-    tcp: Option<String>,
-    #[serde(default)]
-    peers: Vec<IpAddr>,
-}
-
-fn add_sandbox(vault: &Arc<Vault>, request: &Request) -> Reply {
-    let asked: AddSandbox = body(request)?;
-    checked_name(&asked.name)?;
-    if vault.store().sandbox(&asked.name).is_some() {
-        return Err(fail(
-            409,
-            "exists",
-            format!("there is a sandbox {} already", asked.name),
-        ));
-    }
-    let endpoint = match asked.tcp {
-        Some(listen) => {
-            if asked.peers.is_empty() {
-                return Err(bad("a tcp sandbox needs at least one --peer address"));
-            }
-            Endpoint::Tcp {
-                listen,
-                peers: asked.peers,
-            }
+#[utoipa::path(
+    post,
+    path = "/sandboxes",
+    description = "Adds a sandbox endpoint, or several with one prompt (a list body, answered as {\"sandboxes\": [...]}); needs presence",
+    params(("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = SandboxBody,
+    responses(
+        (status = 200, body = SandboxOut),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error),
+        (status = 500, body = Error)
+    )
+)]
+fn add_sandboxes(asked: &Asked) -> Reply {
+    match shape(asked.request)? {
+        Shape::One(one) => asked.one(Action::AddSandbox(parse::<AddSandbox>(one)?)),
+        Shape::Many(items) => {
+            let sandboxes = items
+                .into_iter()
+                .map(|item| parse(item).map(Action::AddSandbox))
+                .collect::<Result<Vec<_>, _>>()?;
+            asked.many(sandboxes, "sandboxes", Some("sandbox"))
         }
-        None => Endpoint::Unix {
-            path: asked
-                .socket
-                .unwrap_or_else(|| vault.config.sockets.join(&asked.name).join("gateway.sock")),
-        },
-    };
-    let at = match &endpoint {
-        Endpoint::Unix { path } => format!("the socket {}", path.display()),
-        Endpoint::Tcp { listen, peers } => format!(
-            "TCP {listen}, taking calls from {}",
-            peers
-                .iter()
-                .map(IpAddr::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    };
-    present(
-        vault,
-        request,
-        &format!("Add the vault sandbox {} at {at}", asked.name),
-    )?;
-    let endpoint = vault
-        .open_endpoint(&asked.name, &endpoint)
-        .map_err(internal)?;
-    let sandbox = Sandbox {
-        name: asked.name,
-        endpoint,
-    };
-    let mut store = vault.store();
-    store.sandboxes.push(sandbox.clone());
-    store
-        .save("sandboxes", &store.sandboxes)
-        .map_err(internal)?;
-    Ok(json!({ "sandbox": sandbox }))
+    }
 }
 
-fn remove_sandbox(vault: &Vault, name: &str, request: &Request) -> Reply {
-    if vault.store().sandbox(name).is_some() {
-        present(
-            vault,
-            request,
-            &format!("Remove the vault sandbox {name}; its tokens stop working"),
-        )?;
+#[utoipa::path(
+    delete,
+    path = "/sandboxes/{name}",
+    description = "Removes a sandbox; its tokens stop working; needs presence unless X-Vault-Revoke carries the revoke value of a token made in the same batch as the sandbox",
+    params(
+        ("name" = String, Path),
+        ("X-Vault-Revoke" = Option<String>, Header),
+        ("X-Vault-Passphrase" = Option<String>, Header)
+    ),
+    responses(
+        (status = 200, body = Removed),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn remove_sandbox(asked: &Asked, name: &str) -> Reply {
+    let action = Action::RemoveSandbox(Name {
+        name: name.to_string(),
+    });
+    let own = asked
+        .request
+        .header("x-vault-revoke")
+        .map(crypto::hash)
+        .is_some_and(|hash| {
+            let store = asked.vault.store();
+            store.sandbox(name).is_some_and(|sandbox| sandbox.throwaway)
+                && store
+                    .tokens
+                    .iter()
+                    .any(|t| t.sandbox == name && t.revoke.as_deref() == Some(hash.as_str()))
+        });
+    if !own {
+        return asked.one(action);
     }
-    {
-        let mut store = vault.store();
-        if store.sandbox(name).is_none() {
-            return Err(missing("sandbox", name));
-        }
-        store.sandboxes.retain(|s| s.name != name);
-        store
-            .save("sandboxes", &store.sandboxes)
-            .map_err(internal)?;
-    }
-    vault.close_endpoint(name);
-    Ok(json!({ "removed": name }))
+    Ok(changes::run(asked.vault, vec![action], |_| Ok(()))?.swap_remove(0))
 }
 
-#[derive(Deserialize)]
+#[utoipa::path(
+    post,
+    path = "/batch",
+    description = "Changes of different kinds, checked together, one prompt, applied together or not at all; a token may use a key or sandbox made earlier in the same batch",
+    params(("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = Batch,
+    responses(
+        (status = 200, body = Results),
+        (status = 400, body = Error),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error),
+        (status = 500, body = Error)
+    )
+)]
+fn batch(asked: &Asked) -> Reply {
+    let batch: Batch = body(asked.request)?;
+    asked.many(batch.actions, "results", None)
+}
+
+#[utoipa::path(
+    get,
+    path = "/approvals",
+    description = "Gateway calls waiting for a human",
+    responses((status = 200, body = Approvals))
+)]
+fn list_approvals(vault: &Vault) -> Value {
+    api::value(Approvals {
+        approvals: vault.approvals.list(),
+    })
+}
+
+#[derive(Deserialize, ToSchema)]
 struct Decide {
     approve: bool,
 }
 
-fn decide(vault: &Vault, id: &str, request: &Request) -> Reply {
-    let asked: Decide = body(request)?;
-    let Some(line) = vault.approvals.line(id) else {
+#[utoipa::path(
+    post,
+    path = "/approvals/{id}",
+    description = "Allows or refuses a waiting call; needs presence",
+    params(("id" = String, Path), ("X-Vault-Passphrase" = Option<String>, Header)),
+    request_body = Decide,
+    responses(
+        (status = 200, body = Decided),
+        (status = 401, body = Error),
+        (status = 404, body = Error),
+        (status = 409, body = Error),
+        (status = 429, body = Error)
+    )
+)]
+fn decide(asked: &Asked, id: &str) -> Reply {
+    let decision: Decide = body(asked.request)?;
+    let approvals = &asked.vault.approvals;
+    let Some(line) = approvals.line(id) else {
         return Err(missing("waiting call", id));
     };
-    let verb = if asked.approve { "Allow" } else { "Refuse" };
-    present(vault, request, &format!("{verb} this call: {line}"))?;
-    if !vault.approvals.decide(id, asked.approve) {
+    let verb = if decision.approve { "Allow" } else { "Refuse" };
+    asked.present(&format!("{verb} this call: {line}"))?;
+    if !approvals.decide(id, decision.approve) {
         return Err(missing("waiting call", id));
     }
-    Ok(json!({ "id": id, "approved": asked.approve }))
+    Ok(api::value(Decided {
+        id: id.to_string(),
+        approved: decision.approve,
+    }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/audit",
+    params(("tail" = Option<usize>, Query, description = "How many of the last entries [default: 50]")),
+    responses((status = 200, body = Audit), (status = 400, body = Error))
+)]
 fn audit(vault: &Vault, query: &str) -> Reply {
     let tail = query
         .split('&')
@@ -571,6 +730,174 @@ fn audit(vault: &Vault, query: &str) -> Reply {
         .map(|n| n.parse::<usize>().map_err(|_| bad("tail must be a number")))
         .transpose()?
         .unwrap_or(50);
-    let lines = vault.store().audit_tail(tail).map_err(internal)?;
-    Ok(json!({ "entries": lines }))
+    let entries = vault.store().audit_tail(tail).map_err(internal)?;
+    Ok(api::value(Audit { entries }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/openapi.json",
+    description = "This document",
+    responses((status = 200, body = Object))
+)]
+fn admin_document() -> Value {
+    api::value(document())
+}
+
+#[utoipa::path(
+    get,
+    path = "/openapi/gateway.json",
+    description = "The gateway's document: the one proxied path a sandbox endpoint answers",
+    responses((status = 200, body = Object))
+)]
+fn gateway_document() -> Value {
+    api::value(openapi::gateway())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn routed() -> BTreeSet<(String, String)> {
+        let source = include_str!("admin.rs");
+        let start = source.find("let reply = match (method").unwrap();
+        let end = start + source[start..].find("_ => Err(").unwrap();
+        source[start..end]
+            .lines()
+            .filter_map(|line| {
+                let arm = line.trim().strip_prefix("(\"")?;
+                let (method, rest) = arm.split_once("\", [")?;
+                let (parts, _) = rest.split_once("])")?;
+                let path: String = parts
+                    .split(", ")
+                    .map(|part| match part.strip_prefix('"') {
+                        Some(literal) => format!("/{}", literal.trim_end_matches('"')),
+                        None => format!("/{{{part}}}"),
+                    })
+                    .collect();
+                Some((method.to_ascii_lowercase(), path))
+            })
+            .collect()
+    }
+
+    fn documented(doc: &Value) -> BTreeSet<(String, String)> {
+        doc["paths"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .flat_map(|(path, item)| {
+                item.as_object()
+                    .unwrap()
+                    .keys()
+                    .filter(|key| ["get", "put", "post", "delete"].contains(&key.as_str()))
+                    .map(|method| (method.clone(), path.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn removal(daemon: &crate::testing::Daemon, name: &str, revoke: &str) -> u16 {
+        crate::client::call(
+            &daemon.admin,
+            "DELETE",
+            &format!("/sandboxes/{name}"),
+            None,
+            &[("X-Vault-Revoke", revoke)],
+        )
+        .unwrap()
+        .0
+    }
+
+    #[test]
+    fn a_sandbox_made_with_a_token_goes_with_the_tokens_revoke_value_and_no_other_does() {
+        let daemon = crate::testing::Daemon::start();
+        daemon.put("svc");
+        let token = |sandbox: &str| {
+            json!({
+                "action": "create_token", "keys": ["svc"], "sandbox": sandbox,
+                "mode": "app"
+            })
+        };
+        let (status, value) = daemon.call(
+            "POST",
+            "/batch",
+            Some(json!({ "actions": [
+                { "action": "add_sandbox", "name": "fresh" },
+                token("fresh")
+            ] })),
+        );
+        assert_eq!(status, 200);
+        let fresh_revoke = value["results"][1]["revoke"].as_str().unwrap().to_string();
+        assert_eq!(
+            daemon
+                .call("POST", "/sandboxes", Some(json!({ "name": "plain" })))
+                .0,
+            200
+        );
+        let (_, plain) = daemon.call("POST", "/tokens", Some(token("plain")));
+        let plain_revoke = plain["revoke"].as_str().unwrap().to_string();
+        let before = daemon.prompts();
+        assert_eq!(removal(&daemon, "plain", &plain_revoke), 200);
+        assert_eq!(daemon.prompts() - before, 1);
+        let (_, other) = daemon.call(
+            "POST",
+            "/batch",
+            Some(json!({ "actions": [
+            { "action": "add_sandbox", "name": "other" },
+            token("other")
+        ] })),
+        );
+        let other_revoke = other["results"][1]["revoke"].as_str().unwrap().to_string();
+        let before = daemon.prompts();
+        assert_eq!(removal(&daemon, "fresh", &other_revoke), 200);
+        assert_eq!(daemon.prompts() - before, 1);
+        assert_eq!(daemon.names("/sandboxes", "sandboxes", "name"), ["other"]);
+        let (_, again) = daemon.call(
+            "POST",
+            "/batch",
+            Some(json!({ "actions": [
+            { "action": "add_sandbox", "name": "fresh" },
+            token("fresh")
+        ] })),
+        );
+        let again_revoke = again["results"][1]["revoke"].as_str().unwrap().to_string();
+        let before = daemon.prompts();
+        assert_eq!(removal(&daemon, "fresh", &again_revoke), 200);
+        assert_eq!(removal(&daemon, "other", &other_revoke), 200);
+        assert_eq!(daemon.prompts(), before);
+        assert!(daemon.names("/sandboxes", "sandboxes", "name").is_empty());
+        assert_eq!(fresh_revoke.len(), again_revoke.len());
+    }
+
+    #[test]
+    fn the_document_lists_every_admin_route_and_no_other() {
+        let routes = routed();
+        assert_eq!(routes.len(), 21, "{routes:?}");
+        assert!(routes.contains(&("post".into(), "/keys/{name}/rotate".into())));
+        let doc = admin_document();
+        assert!(doc["openapi"].as_str().unwrap().starts_with("3."));
+        assert_eq!(documented(&doc), routes);
+        let text = serde_json::to_string(&doc).unwrap();
+        let parsed: utoipa::openapi::OpenApi = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            parsed.paths.paths.len(),
+            doc["paths"].as_object().unwrap().len()
+        );
+        for schema in ["Action", "Batch", "NewToken", "Error", "Endpoint"] {
+            assert!(doc["components"]["schemas"][schema].is_object(), "{schema}");
+        }
+        let action = doc["components"]["schemas"]["Action"].to_string();
+        for kind in [
+            "put_key",
+            "rotate_key",
+            "delete_key",
+            "create_token",
+            "revoke_token",
+            "add_sandbox",
+            "remove_sandbox",
+        ] {
+            assert!(action.contains(kind), "{kind}");
+        }
+    }
 }

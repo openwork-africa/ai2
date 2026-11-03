@@ -40,12 +40,23 @@ struct ModelEntry {
 
 pub type KeyResolver = std::sync::Arc<dyn Fn(&str) -> Result<String> + Send + Sync>;
 
+pub struct Sent<'a> {
+    pub key: &'a str,
+    pub url: &'a str,
+    pub headers: &'a [(String, String)],
+    pub body: &'a Value,
+    pub timeout: Duration,
+}
+
+pub type Gateway = std::sync::Arc<dyn Fn(&Sent) -> Result<(u16, Value)> + Send + Sync>;
+
 pub struct Model {
     provider_name: String,
     provider: Provider,
     id: String,
     max_tokens: u64,
     vault: Option<KeyResolver>,
+    gateway: Option<Gateway>,
 }
 
 pub struct Asking {
@@ -101,12 +112,26 @@ impl Model {
             id,
             max_tokens,
             vault: None,
+            gateway: None,
         })
     }
 
     pub fn with_vault(mut self, vault: KeyResolver) -> Model {
         self.vault = Some(vault);
         self
+    }
+
+    pub fn with_gateway(mut self, gateway: Gateway) -> Model {
+        self.gateway = Some(gateway);
+        self
+    }
+
+    pub fn vault_key(&self) -> Option<&str> {
+        self.provider.api_key.as_deref()?.strip_prefix("vault:")
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
     fn key(&self, value: &str) -> Result<String> {
@@ -119,6 +144,10 @@ impl Model {
 
     pub fn name(&self) -> String {
         format!("{}/{}", self.provider_name, self.id)
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.provider.base_url
     }
 
     pub fn ask<T: DeserializeOwned>(&self, system: &str, input: &str) -> Result<T> {
@@ -141,7 +170,6 @@ impl Model {
 
     pub fn text(&self, system: &str, input: &str, asking: &Asking) -> Result<String> {
         let p = &self.provider;
-        let key = p.api_key.as_deref().map(|v| self.key(v)).transpose()?;
         let base = p.base_url.trim_end_matches('/');
         let max_tokens = asking.max_tokens.unwrap_or(self.max_tokens);
         let (url, mut body) = match p.api.as_str() {
@@ -160,30 +188,35 @@ impl Model {
         if let Some(temperature) = asking.temperature {
             body["temperature"] = json!(temperature);
         }
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(asking.timeout))
-            .http_status_as_error(false)
-            .build()
-            .new_agent();
-        let mut request = agent.post(&url);
-        if let Some(key) = &key {
-            request = if p.api == "anthropic-messages" && !p.auth_header {
-                request
-                    .header("x-api-key", key)
-                    .header("anthropic-version", "2023-06-01")
-            } else {
-                request.header("authorization", &format!("Bearer {key}"))
-            };
-        }
+        let mut headers = Vec::new();
         for (name, value) in &p.headers {
-            request = request.header(name, &resolve(value)?);
+            headers.push((name.clone(), resolve(value)?));
         }
-        let mut response = request
-            .send_json(&body)
-            .with_context(|| format!("calling {url}"))?;
-        let status = response.status();
-        let answer: Value = response.body_mut().read_json().unwrap_or(Value::Null);
-        if !status.is_success() {
+        let anthropic = p.api == "anthropic-messages" && !p.auth_header;
+        if anthropic {
+            headers.push(("anthropic-version".into(), "2023-06-01".into()));
+        }
+        let (status, answer) = match (self.vault_key(), &self.vault, &self.gateway) {
+            (Some(key), None, Some(gateway)) => gateway(&Sent {
+                key,
+                url: &url,
+                headers: &headers,
+                body: &body,
+                timeout: asking.timeout,
+            })?,
+            _ => {
+                let key = p.api_key.as_deref().map(|v| self.key(v)).transpose()?;
+                if let Some(key) = key {
+                    headers.push(if anthropic {
+                        ("x-api-key".into(), key)
+                    } else {
+                        ("authorization".into(), format!("Bearer {key}"))
+                    });
+                }
+                post(&url, &headers, &body, asking.timeout)?
+            }
+        };
+        if !(200..300).contains(&status) {
             bail!(
                 "{url} answered {status}: {}",
                 answer.get("error").unwrap_or(&answer)
@@ -204,6 +237,31 @@ impl Model {
     }
 }
 
+fn post(
+    url: &str,
+    headers: &[(String, String)],
+    body: &Value,
+    timeout: Duration,
+) -> Result<(u16, Value)> {
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let mut request = agent.post(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let mut response = request
+        .send_json(body)
+        .with_context(|| format!("calling {url}"))?;
+    let status = response.status().as_u16();
+    Ok((
+        status,
+        response.body_mut().read_json().unwrap_or(Value::Null),
+    ))
+}
+
 fn resolve(value: &str) -> Result<String> {
     if let Some(name) = value.strip_prefix('$') {
         return std::env::var(name).with_context(|| format!("${name} is not set"));
@@ -222,7 +280,7 @@ fn resolve(value: &str) -> Result<String> {
     Ok(value.to_string())
 }
 
-fn parse<T: DeserializeOwned>(answer: &str) -> Result<T> {
+pub(crate) fn parse<T: DeserializeOwned>(answer: &str) -> Result<T> {
     let text = answer
         .rsplit_once("</think>")
         .map_or(answer, |(_, after)| after);

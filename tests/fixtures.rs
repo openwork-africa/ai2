@@ -123,7 +123,7 @@ fn the_dashboard_shows_only_the_steps_it_ran() {
 }
 
 #[test]
-fn the_report_opened_as_a_file_says_to_run_the_vault_ui() {
+fn the_report_opened_as_a_file_says_to_run_ai2_ui() {
     let page = html(&review(
         spec_of("clean"),
         vec![card("msr", None, None)],
@@ -131,7 +131,7 @@ fn the_report_opened_as_a_file_says_to_run_the_vault_ui() {
     ));
     assert!(page.contains("<label for=\"tab-vault\">Vault</label>"));
     assert!(page.contains("<section id=\"vault\""));
-    assert!(page.contains("Run <code>ai2 vault ui</code>"));
+    assert!(page.contains("Run <code>ai2 ui</code>"));
     assert!(!page.contains("<script"));
     assert!(page.contains("Security review") && page.contains("Modern Security Rating"));
 }
