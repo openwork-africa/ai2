@@ -167,7 +167,6 @@ Pass your own identity: `ai2::run_with(steps, subcommands, ai2::Build { name: "m
 - **Planning skill**.
 - **Publish app**.
 - **A friendly localhost URL** for the ai2 UI instead of 127.0.0.1 and a port.
-- **Live run watching**: every agent run streams into the UI as it happens, its steps and log line by line.
 - **A pretrained security model**.
 - **Threat-model table**: each threat and whether it is covered, partly covered or not covered, to be discussed before it is written.
 
