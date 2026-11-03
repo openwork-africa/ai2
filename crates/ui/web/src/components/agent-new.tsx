@@ -278,8 +278,7 @@ export function NewAgentSheet({ harnesses, onSaved }: { harnesses: Harness[] | n
             </Field>
             <Field className="data-[invalid=true]:text-foreground" invalid={Boolean(errors.folder)}>
               <FieldLabel>Folder</FieldLabel>
-              <Input value={folder} onChange={(event) => setFolder(event.target.value)} placeholder="/Users/you/Documents/project" className="font-mono" disabled={busy} />
-              <FieldDescription>Where it works when a message names no other folder.</FieldDescription>
+              <Input value={folder} onChange={(event) => setFolder(event.target.value)} className="font-mono" disabled={busy} />
               <FieldError className="text-destructive">{errors.folder}</FieldError>
             </Field>
           </FieldGroup>

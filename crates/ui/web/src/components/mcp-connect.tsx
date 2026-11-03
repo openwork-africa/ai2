@@ -44,7 +44,7 @@ function Http({ connections, onChange }: { connections: Connections; onChange: (
 
   return (
     <Collapsible open={open} onOpenChange={(details) => setOpen(details.open)}>
-      <CollapsibleTrigger className="group -ml-1 flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+      <CollapsibleTrigger className="group flex items-center gap-1 rounded-md py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
         <ChevronRight className={cn("size-3.5 transition-transform duration-200", open && "rotate-90")} />
         Connect over HTTP
       </CollapsibleTrigger>
@@ -59,7 +59,7 @@ function Http({ connections, onChange }: { connections: Connections; onChange: (
                 <span className="text-xs text-muted-foreground">Good once, for {minutesLeft(pairing.expires, Date.now())} more minutes.</span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Code className="min-w-0 flex-1 truncate py-1.5">{pairLine(origin, pairing.code)}</Code>
+                <Code className="min-w-0 flex-1 overflow-x-auto py-1.5 whitespace-nowrap">{pairLine(origin, pairing.code)}</Code>
                 <CopyButton value={pairLine(origin, pairing.code)} />
               </div>
             </>
@@ -73,9 +73,9 @@ function Http({ connections, onChange }: { connections: Connections; onChange: (
             </div>
           )}
           {connections.tokens.length > 0 && (
-            <ul className="flex flex-col divide-y rounded-xl ring-1 ring-border">
+            <ul className="flex flex-col divide-y">
               {connections.tokens.map((token) => (
-                <li key={token.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                <li key={token.id} className="flex items-center gap-3 py-2 text-xs">
                   <span className="font-medium">{token.name}</span>
                   <span className="text-muted-foreground">
                     {token.last_used ? `last used ${new Date(token.last_used * 1000).toLocaleString()}` : "not used yet"}
@@ -129,9 +129,8 @@ export function SkillButton({ harness, onAdded }: { harness: Harness; onAdded: (
   );
 }
 
-export function McpConnect() {
+function useConnections() {
   const [connections, setConnections] = useState<Connections | null>(null);
-  const [claude, setClaude] = useState<Harness | null>(null);
 
   const load = useCallback(() => {
     listConnections()
@@ -139,16 +138,9 @@ export function McpConnect() {
       .catch(() => setConnections(null));
   }, []);
 
-  const loadHarness = useCallback(() => {
-    listHarnesses()
-      .then(({ harnesses }) => setClaude(harnesses.find((harness) => harness.id === "claude" && harness.installed && harness.skills) ?? null))
-      .catch(() => setClaude(null));
-  }, []);
-
   useEffect(() => {
     load();
-    loadHarness();
-  }, [load, loadHarness]);
+  }, [load]);
 
   const waiting = showCard(connections);
   useEffect(() => {
@@ -157,31 +149,50 @@ export function McpConnect() {
     return () => window.clearInterval(timer);
   }, [waiting, load]);
 
+  return { connections, waiting, load };
+}
+
+export function McpConnect() {
+  const { connections, waiting, load } = useConnections();
+  const [claude, setClaude] = useState<Harness | null>(null);
+
+  const loadHarness = useCallback(() => {
+    listHarnesses()
+      .then(({ harnesses }) => setClaude(harnesses.find((harness) => harness.id === "claude" && harness.installed && harness.skills) ?? null))
+      .catch(() => setClaude(null));
+  }, []);
+
+  useEffect(() => {
+    loadHarness();
+  }, [loadHarness]);
+
   if (!connections) return null;
 
   if (!waiting) {
     return (
-      <div className="flex flex-col gap-2" data-mcp="connected">
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <Card size="sm" className="gap-4" data-mcp="connected">
+        <p className="flex items-center gap-2 px-(--card-spacing) text-xs text-muted-foreground">
           <Dot tone="success" className="ring-0" />
           Connected: {connectedNames(connections).join(", ")}
         </p>
-        <Http connections={connections} onChange={load} />
-      </div>
+        <div className="border-t px-(--card-spacing) pt-3">
+          <Http connections={connections} onChange={load} />
+        </div>
+      </Card>
     );
   }
 
   const line = pasteLine(window.location.origin);
   return (
     <Card size="sm" className="gap-4" data-mcp="card">
-      <div className="flex items-start gap-3 px-(--card-spacing)">
+      <div className="flex items-center gap-3 px-(--card-spacing)">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-fill-default">
           <Plug className="size-4" />
         </span>
-        <p className="pt-2 text-sm">Lets your coding agent work with ai squared: your apps, keys and reviews.</p>
+        <p className="text-sm">Lets your coding agent work with ai squared: your apps, keys and reviews.</p>
       </div>
       <div className="flex flex-wrap items-center gap-2 px-(--card-spacing)">
-        <Code className="min-w-0 flex-1 truncate py-1.5" data-paste>
+        <Code className="min-w-0 flex-1 overflow-x-auto py-1.5 whitespace-nowrap" data-paste>
           {line}
         </Code>
         <CopyButton value={line} />

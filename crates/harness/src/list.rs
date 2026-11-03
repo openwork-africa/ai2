@@ -267,7 +267,11 @@ fn every() -> Vec<Setup> {
                     "Muse Code",
                     "muse",
                     "curl -fsSL https://dev.meta.ai/install.sh | bash".into(),
-                    vec![],
+                    vec![
+                        ModelChoice::new("muse-wonder-1.0", "Muse Wonder 1.0"),
+                        ModelChoice::new("muse-spark-1.3", "Muse Spark 1.3"),
+                        ModelChoice::new("muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"),
+                    ],
                     Headless {
                         personality: Some(Personality::Given(muse_personality)),
                         ..headless("muse exec", "--json --yolo --disable-request-user-input")

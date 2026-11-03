@@ -4,6 +4,33 @@
 
 Your apps, your agents' work and your keys, looked after on your own machine by ai squared.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/openwork-africa/ai2/main/install.sh | sh
+ai2 setup
+```
+
+The first line fetches the build for your machine from the latest release, checks its SHA-256, and puts `ai2` in `~/.local/bin`.
+There are builds for macOS (Apple silicon and Intel) and Linux (x86_64 and arm64).
+
+`ai2 setup` opens your browser: a few welcome screens, then setup as it runs.
+`ai2 setup --headless` does the same in the terminal.
+The dashboard and the vault both start when you log in. The dashboard is at `http://127.0.0.1:7797`; bookmark the address `ai2 ui address` prints, nonce and all.
+
+Setup asks you to approve once or twice.
+On a Mac that is Touch ID, or your Mac password.
+On Linux it is your login password, through polkit: the desktop prompt, or the terminal when there is no desktop. Without polkit, you choose a vault passphrase during setup. Linux setup also asks for `sudo` once.
+
+There is no account and no sign-up. Your keys stay on this machine.
+
+### What you just installed
+
+- `ai2`, one binary.
+- The vault service, the only thing that ever holds your keys. It starts when you log in.
+- A place for agents to run boxed in: Apple's `container` on macOS 26 with Apple silicon. Elsewhere, setup says so, and agents run on the host, each sandbox with its own socket to the vault.
+- The dashboard, a page on `http://127.0.0.1:7797` that starts when you log in and keeps your apps running. `ai2 ui` opens it.
+
 It does three things.
 
 ### Register an app
@@ -38,33 +65,6 @@ ai2 vault put --name stripe --approved-url https://api.stripe.com/
 Locks a secret away; it asks for the secret without showing it.
 Agents get a short-lived pass to use the key, never the key itself, and only on the URLs you allow.
 In the page: **Vault**, then **Add key**.
-
-## Install
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/openwork-africa/ai2/main/install.sh | sh
-ai2 setup
-```
-
-The first line fetches the build for your machine from the latest release, checks its SHA-256, and puts `ai2` in `~/.local/bin`.
-There are builds for macOS (Apple silicon and Intel) and Linux (x86_64 and arm64).
-
-`ai2 setup` opens your browser: a few welcome screens, then setup as it runs.
-`ai2 setup --headless` does the same in the terminal.
-The dashboard and the vault both start when you log in. The dashboard is at `http://127.0.0.1:7797`; bookmark the address `ai2 ui address` prints, nonce and all.
-
-Setup asks you to approve once or twice.
-On a Mac that is Touch ID, or your Mac password.
-On Linux it is your login password, through polkit: the desktop prompt, or the terminal when there is no desktop. Without polkit, you choose a vault passphrase during setup. Linux setup also asks for `sudo` once.
-
-There is no account and no sign-up. Your keys stay on this machine.
-
-### What you just installed
-
-- `ai2`, one binary.
-- The vault service, the only thing that ever holds your keys. It starts when you log in.
-- A place for agents to run boxed in: Apple's `container` on macOS 26 with Apple silicon. Elsewhere, setup says so, and agents run on the host, each sandbox with its own socket to the vault.
-- The dashboard, a page on `http://127.0.0.1:7797` that starts when you log in and keeps your apps running. `ai2 ui` opens it.
 
 ### First things to try
 
@@ -142,7 +142,7 @@ From source: `cargo install --git https://github.com/openwork-africa/ai2`.
 Each rating is a percentage, the mean of three factors from 0 to 100.
 
 - **Modern Security Rating (MSR)**: how exposed the folder's stack is to exploits published in recent days (OSV.dev and CISA KEV).
-- **Run Risk Factor (RRF)**: what a coding harness (Muse Code or pi) finds in the files the run changed, with the four security skills in `skills/`. Each finding is fixed where a small, safe change does it.
+- **Run Risk Factor (RRF)**: what a coding harness you pick with `--harness` (Claude Code, Codex, pi and Muse Code are built in) finds in the files the run changed, with the four security skills in `skills/`. Each finding is fixed where a small, safe change does it.
 
 The MSR asks the model in your providers file to match advisories to your stack, so the list of your stack goes to that model (and, without syft, the manifests it reads). The RRF harness reads the changed files with its own model.
 
