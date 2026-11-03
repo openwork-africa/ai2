@@ -11,6 +11,7 @@ import { isMac } from "@/lib/vault";
 import Approvals from "@/pages/vault/Approvals";
 import Audit from "@/pages/vault/Audit";
 import Keys from "@/pages/vault/Keys";
+import { Pending } from "@/pages/vault/Pending";
 import { Presence } from "@/pages/vault/Presence";
 import Sandboxes from "@/pages/vault/Sandboxes";
 import Tokens from "@/pages/vault/Tokens";
@@ -69,7 +70,7 @@ function Live() {
   const asked = params.get("tab");
   const tab: Tab = isTab(asked) ? asked : "keys";
   const { data } = useVaultStatus();
-  const mac = isMac(data?.platform ?? navigator.userAgent);
+  const mac = isMac(data?.platform);
   const waiting = useApprovals().approvals?.length ?? 0;
 
   return (
@@ -103,12 +104,13 @@ function Live() {
             ))}
           </TabsList>
         </div>
-        <TabsContent value="keys">{tab === "keys" && <Keys mac={mac} />}</TabsContent>
+        <TabsContent value="keys">{tab === "keys" && <Keys />}</TabsContent>
         <TabsContent value="tokens">{tab === "tokens" && <Tokens mac={mac} />}</TabsContent>
-        <TabsContent value="sandboxes">{tab === "sandboxes" && <Sandboxes mac={mac} />}</TabsContent>
-        <TabsContent value="approvals">{tab === "approvals" && <Approvals mac={mac} />}</TabsContent>
+        <TabsContent value="sandboxes">{tab === "sandboxes" && <Sandboxes />}</TabsContent>
+        <TabsContent value="approvals">{tab === "approvals" && <Approvals />}</TabsContent>
         <TabsContent value="audit">{tab === "audit" && <Audit />}</TabsContent>
       </Tabs>
+      <Pending />
       <Presence />
       <Toaster />
     </>

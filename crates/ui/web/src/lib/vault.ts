@@ -54,7 +54,54 @@ export type AuditEntry = {
   reason: string | null;
 };
 
-export type VaultStatus = { master_key: boolean; platform: string; version: string };
+export type PresenceKind = "touch_id" | "polkit" | "passphrase";
+
+export type VaultStatus = { master_key: boolean; platform: string; version: string; presence?: PresenceKind };
+
+export const presenceKind = (status: { platform?: string; presence?: string } | null | undefined): PresenceKind => {
+  if (status?.presence === "touch_id" || status?.presence === "polkit" || status?.presence === "passphrase") return status.presence;
+  return /mac|darwin/i.test(status?.platform ?? "") ? "touch_id" : "passphrase";
+};
+
+export type KeyRequest = { description: string; approved_urls: string[]; inject: string; secret: string };
+
+export type Change =
+  | ({ action: "put_key"; name: string } & KeyRequest)
+  | { action: "rotate_key"; name: string; secret: string }
+  | { action: "delete_key"; name: string }
+  | ({ action: "create_token" } & TokenRequest)
+  | { action: "revoke_token"; id: string }
+  | ({ action: "add_sandbox" } & SandboxRequest)
+  | { action: "remove_sandbox"; name: string };
+
+export const describeChange = (change: Change) => {
+  switch (change.action) {
+    case "put_key":
+      return `Add the key ${change.name}, sent only to ${change.approved_urls.map(host).join(", ")}`;
+    case "rotate_key":
+      return `Rotate the secret of ${change.name}`;
+    case "delete_key":
+      return `Delete the key ${change.name}`;
+    case "create_token":
+      return `Make an ${change.mode} token for ${change.keys.join(", ")} in ${change.sandbox}`;
+    case "revoke_token":
+      return `Revoke ${change.id}`;
+    case "add_sandbox":
+      return `Add the sandbox ${change.name}${change.tcp ? ` on ${change.tcp}` : ""}`;
+    case "remove_sandbox":
+      return `Remove the sandbox ${change.name}`;
+  }
+};
+
+export const changeTarget = (change: Change) =>
+  change.action === "create_token" ? null : change.action === "revoke_token" ? change.id : change.name;
+
+export const batchBody = (changes: Change[]) => ({ actions: changes });
+
+export const madeTokens = (results: unknown[]): NewToken[] =>
+  results
+    .filter((result): result is NewToken & { revoke?: string } => typeof (result as { token?: unknown })?.token === "string")
+    .map(shownToken);
 
 export const NAME_PATTERN = "[A-Za-z0-9_\\-][A-Za-z0-9_.\\-]{0,63}";
 
@@ -214,7 +261,7 @@ export const relative = (value: string | number | null | undefined, now = Date.n
 };
 
 export type Presence = {
-  mac: boolean;
+  kind: PresenceKind;
   waiting: (on: boolean) => void;
   ask: () => Promise<string | null>;
 };
@@ -232,12 +279,12 @@ const needsPresence = (failure: unknown) =>
   (failure as { code?: string }).code === "presence_required";
 
 export const withPresence = async <T>(write: boolean, presence: Presence, send: (passphrase?: string) => Promise<T>) => {
-  const touch = write && presence.mac;
+  const touch = write && presence.kind !== "passphrase";
   if (touch) presence.waiting(true);
   try {
     return await send();
   } catch (failure) {
-    if (!write || presence.mac || !needsPresence(failure)) throw failure;
+    if (!write || presence.kind !== "passphrase" || !needsPresence(failure)) throw failure;
   } finally {
     if (touch) presence.waiting(false);
   }

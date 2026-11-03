@@ -1,33 +1,30 @@
 import { cn } from "cn";
-import { Check, Copy, type LucideIcon, TriangleAlert } from "lucide-react";
+import { Check, Copy, type LucideIcon, TriangleAlert, Undo2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
-import { absolute, Cancelled, host, relative } from "@/lib/vault";
+import { dequeue, presenceNow, type Queued, useQueue } from "@/hooks/use-vault";
+import { absolute, Cancelled, type Change, changeTarget, host, type PresenceKind, relative } from "@/lib/vault";
 
-export const problem = (failure: unknown, mac: boolean) => {
-  if (failure instanceof ApiError && failure.code === "presence_required")
-    return mac ? "Touch ID was not confirmed, so nothing changed." : "The vault did not accept the passphrase, so nothing changed.";
+const UNCONFIRMED: Record<PresenceKind, string> = {
+  touch_id: "Touch ID was not confirmed, so nothing changed.",
+  polkit: "The system prompt was not confirmed, so nothing changed.",
+  passphrase: "The vault did not accept the passphrase, so nothing changed.",
+};
+
+export const problem = (failure: unknown) => {
+  if (failure instanceof ApiError && failure.code === "presence_required") return UNCONFIRMED[presenceNow()];
+  if (failure instanceof ApiError && failure.code === "busy") return "Another vault prompt is open. Answer it first, then try again.";
   return (failure as Error).message;
 };
 
 export async function run<T>(
   work: () => Promise<T>,
-  { done, mac, after }: { done: string; mac: boolean; after?: () => unknown },
+  { done, after }: { done: string; after?: () => unknown },
 ): Promise<T | undefined> {
   try {
     const out = await work();
@@ -36,7 +33,7 @@ export async function run<T>(
     return out;
   } catch (failure) {
     if (failure instanceof Cancelled) toast.create({ title: failure.message, type: "info" });
-    else toast.create({ title: "The vault said no", description: problem(failure, mac), type: "error" });
+    else toast.create({ title: "The vault said no", description: problem(failure), type: "error" });
     return undefined;
   }
 }
@@ -162,47 +159,30 @@ export function Failed({ message }: { message: string }) {
   );
 }
 
-export function Confirm({
-  open,
-  onOpenChange,
-  icon: Icon,
-  title,
-  children,
-  action,
-  onConfirm,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  icon: LucideIcon;
-  title: string;
-  children: ReactNode;
-  action: string;
-  onConfirm: () => void;
-}) {
+export const useQueued = () => {
+  const queue = useQueue();
+  return (action: Change["action"], target: string) =>
+    queue.find((entry) => entry.change.action === action && changeTarget(entry.change) === target);
+};
+
+export function QueuedTag({ children }: { children: ReactNode }) {
   return (
-    <AlertDialog open={open} onOpenChange={(details) => onOpenChange(details.open)}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogMedia className="bg-destructive/10 text-destructive">
-            <Icon />
-          </AlertDialogMedia>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{children}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <Button
-            className="bg-destructive text-white outline-destructive hover:bg-destructive/90"
-            onClick={() => {
-              onOpenChange(false);
-              onConfirm();
-            }}
-          >
-            {action}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-1.5 py-0.5 text-2xs font-medium text-foreground">
+      <span className="size-1.5 rounded-full bg-warning" />
+      {children}
+    </span>
+  );
+}
+
+export function Undo({ entry, label }: { entry: Queued; label: string }) {
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <QueuedTag>{label}</QueuedTag>
+      <Button variant="ghost" size="xs" onClick={() => dequeue(entry.id)}>
+        <Undo2 data-icon="inline-start" />
+        Undo
+      </Button>
+    </div>
   );
 }
 

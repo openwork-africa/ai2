@@ -1,31 +1,24 @@
-import { Box, Plus, Trash2 } from "lucide-react";
+import { cn } from "cn";
+import { Box, ListPlus, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useVaultQuery, vault } from "@/hooks/use-vault";
-import { type Sandbox, type SandboxForm, sandboxRequest, segment } from "@/lib/vault";
-import { Chip, Confirm, Failed, Mono, Nothing, Panel, Rows, run, Toolbar } from "@/pages/vault/common";
+import { enqueue, useVaultQuery } from "@/hooks/use-vault";
+import { type Sandbox, type SandboxForm, sandboxRequest } from "@/lib/vault";
+import { Chip, Failed, Mono, Nothing, Panel, Rows, Toolbar, Undo, useQueued } from "@/pages/vault/common";
 
 type SandboxList = { sandboxes: Sandbox[] };
 
-export default function Sandboxes({ mac }: { mac: boolean }) {
-  const { data, error, reload } = useVaultQuery<SandboxList>("/sandboxes");
+export default function Sandboxes() {
+  const { data, error } = useVaultQuery<SandboxList>("/sandboxes");
+  const queued = useQueued();
   const [adding, setAdding] = useState(false);
-  const [removing, setRemoving] = useState<Sandbox | null>(null);
   const sandboxes = data?.sandboxes ?? [];
-
-  const remove = (sandbox: Sandbox) =>
-    run(() => vault("DELETE", `/sandboxes/${segment(sandbox.name)}`, undefined, `remove ${sandbox.name}`), {
-      done: `Removed ${sandbox.name}`,
-      mac,
-      after: reload,
-    });
 
   return (
     <div className="flex flex-col gap-4">
@@ -62,8 +55,10 @@ export default function Sandboxes({ mac }: { mac: boolean }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sandboxes.map((sandbox) => (
-                <TableRow key={sandbox.name}>
+              {sandboxes.map((sandbox) => {
+                const removing = queued("remove_sandbox", sandbox.name);
+                return (
+                <TableRow key={sandbox.name} className={cn(removing && "bg-destructive/5 opacity-70 hover:bg-destructive/5")}>
                   <TableCell className="py-3 pl-4">
                     <Mono className="text-sm font-medium">{sandbox.name}</Mono>
                   </TableCell>
@@ -86,32 +81,28 @@ export default function Sandboxes({ mac }: { mac: boolean }) {
                     )}
                   </TableCell>
                   <TableCell className="py-3 pr-4 text-right">
-                    <Button
-                      variant="ghost" className="text-muted-foreground hover:text-destructive"
-                      size="icon-sm"
-                      aria-label={`Remove ${sandbox.name}`}
-                      onClick={() => setRemoving(sandbox)}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {removing ? (
+                      <Undo entry={removing} label="Queued to remove" />
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-destructive"
+                        size="icon-sm"
+                        aria-label={`Remove ${sandbox.name}`}
+                        onClick={() => enqueue({ action: "remove_sandbox", name: sandbox.name })}
+                      >
+                        <Trash2 />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </Panel>
       )}
-      <AddSandbox open={adding} onOpenChange={setAdding} mac={mac} after={reload} />
-      <Confirm
-        open={removing !== null}
-        onOpenChange={(open) => !open && setRemoving(null)}
-        icon={Trash2}
-        title={`Remove ${removing?.name ?? "the sandbox"}?`}
-        action="Remove sandbox"
-        onConfirm={() => removing && remove(removing)}
-      >
-        Its endpoint stops answering and its tokens stop working.
-      </Confirm>
+      <AddSandbox open={adding} onOpenChange={setAdding} />
     </div>
   );
 }
@@ -121,35 +112,22 @@ const EMPTY: SandboxForm = { name: "", transport: "unix", socket: "", listen: ""
 function AddSandbox({
   open,
   onOpenChange,
-  mac,
-  after,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mac: boolean;
-  after: () => Promise<void>;
 }) {
   const [form, setForm] = useState<SandboxForm>(EMPTY);
-  const [busy, setBusy] = useState(false);
   const [problemText, setProblem] = useState("");
   const set = <K extends keyof SandboxForm>(field: K, value: SandboxForm[K]) => setForm((prev) => ({ ...prev, [field]: value }));
 
-  const submit = async (event: FormEvent) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault();
     const built = sandboxRequest(form);
     if ("problem" in built) return setProblem(built.problem);
     setProblem("");
-    setBusy(true);
-    const done = await run(() => vault("POST", "/sandboxes", built.request, `add the sandbox ${built.request.name}`), {
-      done: `Added ${built.request.name}`,
-      mac,
-      after,
-    });
-    setBusy(false);
-    if (done !== undefined) {
-      setForm(EMPTY);
-      onOpenChange(false);
-    }
+    enqueue({ action: "add_sandbox", ...built.request });
+    setForm(EMPTY);
+    onOpenChange(false);
   };
 
   return (
@@ -158,7 +136,7 @@ function AddSandbox({
         <form onSubmit={submit} autoComplete="off" className="flex min-h-0 flex-1 flex-col">
           <SheetHeader className="pb-2">
             <SheetTitle>Add a sandbox</SheetTitle>
-            <SheetDescription>The vault opens its endpoint at once.</SheetDescription>
+            <SheetDescription>It joins your pending changes. On Apply the vault opens its endpoint.</SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-2">
             <FieldGroup className="gap-5">
@@ -231,9 +209,9 @@ function AddSandbox({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy}>
-                {busy && <Spinner data-icon="inline-start" />}
-                Add sandbox
+              <Button type="submit">
+                <ListPlus data-icon="inline-start" />
+                Queue sandbox
               </Button>
             </div>
           </SheetFooter>

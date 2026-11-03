@@ -1,4 +1,5 @@
-import { KeyRound, Plus, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
+import { cn } from "cn";
+import { KeyRound, ListPlus, Plus, RefreshCcw, Sparkles, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import {
   AlertDialog,
@@ -19,7 +20,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useVaultQuery, vault } from "@/hooks/use-vault";
+import { enqueue, useVaultQuery, vault } from "@/hooks/use-vault";
 import {
   INJECT_PRESETS,
   type InjectPreset,
@@ -30,23 +31,16 @@ import {
   validName,
   type VaultKey,
 } from "@/lib/vault";
-import { Confirm, Failed, Mono, Nothing, Panel, problem, Rows, run, Toolbar, Urls, When } from "@/pages/vault/common";
+import { Failed, Mono, Nothing, Panel, problem, QueuedTag, Rows, Toolbar, Undo, Urls, useQueued, When } from "@/pages/vault/common";
 
 type KeyList = { keys: VaultKey[] };
 
-export default function Keys({ mac }: { mac: boolean }) {
-  const { data, error, reload } = useVaultQuery<KeyList>("/keys");
+export default function Keys() {
+  const { data, error } = useVaultQuery<KeyList>("/keys");
+  const queued = useQueued();
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<VaultKey | null>(null);
-  const [deleting, setDeleting] = useState<VaultKey | null>(null);
   const keys = data?.keys ?? [];
-
-  const remove = (key: VaultKey) =>
-    run(() => vault("DELETE", `/keys/${segment(key.name)}`, undefined, `delete ${key.name}`), {
-      done: `Deleted ${key.name}`,
-      mac,
-      after: reload,
-    });
 
   return (
     <div className="flex flex-col gap-4">
@@ -83,59 +77,69 @@ export default function Keys({ mac }: { mac: boolean }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {keys.map((key) => (
-                <TableRow key={key.name}>
-                  <TableCell className="max-w-72 min-w-44 py-3 pl-4 align-top">
-                    <div className="flex flex-col gap-0.5">
-                      <Mono className="text-sm font-medium">{key.name}</Mono>
-                      {key.description && (
-                        <span className="line-clamp-2 text-xs whitespace-normal text-muted-foreground">{key.description}</span>
+              {keys.map((key) => {
+                const deleting = queued("delete_key", key.name);
+                const rotation = queued("rotate_key", key.name);
+                return (
+                  <TableRow key={key.name} className={cn(deleting && "bg-destructive/5 hover:bg-destructive/5")}>
+                    <TableCell className={cn("max-w-72 min-w-44 py-3 pl-4 align-top", deleting && "opacity-50")}>
+                      <div className="flex flex-col gap-0.5">
+                        <Mono className={cn("text-sm font-medium", deleting && "line-through")}>{key.name}</Mono>
+                        {key.description && (
+                          <span className="line-clamp-2 text-xs whitespace-normal text-muted-foreground">{key.description}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className={cn("py-3 align-top", deleting && "opacity-50")}>
+                      <Urls urls={key.approved_urls} />
+                    </TableCell>
+                    <TableCell className={cn("py-3 align-top", deleting && "opacity-50")}>
+                      <Badge variant="outline" className="font-mono" title={key.inject}>
+                        {injectLabel(key.inject)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="py-3 align-top text-xs text-muted-foreground">
+                      {rotation ? (
+                        <QueuedTag>new secret queued</QueuedTag>
+                      ) : (
+                        <span className="flex flex-col">
+                          <When value={key.rotated ?? key.created} />
+                          <span className="text-2xs text-muted-foreground/80">{key.rotated ? "rotated" : "added"}</span>
+                        </span>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-3 align-top">
-                    <Urls urls={key.approved_urls} />
-                  </TableCell>
-                  <TableCell className="py-3 align-top">
-                    <Badge variant="outline" className="font-mono" title={key.inject}>
-                      {injectLabel(key.inject)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="py-3 align-top text-xs text-muted-foreground">
-                    <span className="flex flex-col">
-                      <When value={key.rotated ?? key.created} />
-                      <span className="text-2xs text-muted-foreground/80">{key.rotated ? "rotated" : "added"}</span>
-                    </span>
-                  </TableCell>
-                  <TableCell className="py-3 pr-4 text-right align-top">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="outline" size="sm" onClick={() => setRotating(key)}>
-                        <RefreshCcw data-icon="inline-start" />
-                        Rotate
-                      </Button>
-                      <Button variant="ghost" className="text-muted-foreground hover:text-destructive" size="icon-sm" aria-label={`Delete ${key.name}`} onClick={() => setDeleting(key)}>
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell className="py-3 pr-4 text-right align-top">
+                      {deleting ? (
+                        <Undo entry={deleting} label="Queued to delete" />
+                      ) : rotation ? (
+                        <Undo entry={rotation} label="Rotation queued" />
+                      ) : (
+                        <div className="flex justify-end gap-1">
+                          <Button variant="outline" size="sm" onClick={() => setRotating(key)}>
+                            <RefreshCcw data-icon="inline-start" />
+                            Rotate
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-destructive"
+                            size="icon-sm"
+                            aria-label={`Delete ${key.name}`}
+                            onClick={() => enqueue({ action: "delete_key", name: key.name })}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Panel>
       )}
-      <AddKey open={adding} onOpenChange={setAdding} mac={mac} existing={keys} after={reload} />
-      <Rotate keyRecord={rotating} onClose={() => setRotating(null)} mac={mac} after={reload} />
-      <Confirm
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        icon={Trash2}
-        title={`Delete ${deleting?.name ?? "the key"}?`}
-        action="Delete key"
-        onConfirm={() => deleting && remove(deleting)}
-      >
-        Apps and agents that use it stop working. The sealed secret is gone for good.
-      </Confirm>
+      <AddKey open={adding} onOpenChange={setAdding} existing={keys} />
+      <Rotate keyRecord={rotating} onClose={() => setRotating(null)} />
     </div>
   );
 }
@@ -143,15 +147,11 @@ export default function Keys({ mac }: { mac: boolean }) {
 function AddKey({
   open,
   onOpenChange,
-  mac,
   existing,
-  after,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mac: boolean;
   existing: VaultKey[];
-  after: () => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -159,7 +159,6 @@ function AddKey({
   const [preset, setPreset] = useState<InjectPreset>("bearer");
   const [arg, setArg] = useState("");
   const [secret, setSecret] = useState("");
-  const [busy, setBusy] = useState(false);
   const [proposing, setProposing] = useState(false);
   const [problemText, setProblem] = useState("");
   const [proposed, setProposed] = useState(false);
@@ -202,34 +201,29 @@ function AddKey({
         setProposed(true);
       } else setProblem("The vetting model proposed no URLs. Write them yourself.");
     } catch (failure) {
-      setProblem(problem(failure, mac));
+      setProblem(problem(failure));
     } finally {
       setProposing(false);
     }
   };
 
-  const submit = async (event: FormEvent) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault();
     const approved = lines(urls);
     if (!validName(trimmed)) return setProblem("A name is letters, digits, - _ . and at most 64.");
     if (!approved.length) return setProblem("Add at least one approved URL, or press Propose URLs and check what comes back.");
     if (chosen.arg && !arg.trim()) return setProblem(`Fill in the ${chosen.label.toLowerCase()}.`);
     if (!secret) return setProblem("Paste the secret.");
-    setProblem("");
-    setBusy(true);
-    const body = { description: description.trim(), approved_urls: approved, inject: injectValue(preset, arg), secret };
-    const done = await run(() => vault("PUT", `/keys/${segment(trimmed)}`, body, `add the key ${trimmed}`), {
-      done: replaces ? `Replaced ${trimmed}` : `Added ${trimmed}`,
-      mac,
-      after,
+    enqueue({
+      action: "put_key",
+      name: trimmed,
+      description: description.trim(),
+      approved_urls: approved,
+      inject: injectValue(preset, arg),
+      secret,
     });
-    body.secret = "";
-    setSecret("");
-    setBusy(false);
-    if (done !== undefined) {
-      reset();
-      onOpenChange(false);
-    }
+    reset();
+    onOpenChange(false);
   };
 
   return (
@@ -238,7 +232,7 @@ function AddKey({
         <form onSubmit={submit} autoComplete="off" className="flex min-h-0 flex-1 flex-col">
           <SheetHeader className="pb-2">
             <SheetTitle>Add a key</SheetTitle>
-            <SheetDescription>The secret goes straight to the vault and is never shown again.</SheetDescription>
+            <SheetDescription>It joins your pending changes. On Apply the secret goes to the vault and is never shown again.</SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-2">
             <FieldGroup className="gap-5">
@@ -338,9 +332,9 @@ function AddKey({
               <Button type="button" variant="outline" onClick={() => close(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy}>
-                {busy && <Spinner data-icon="inline-start" />}
-                {replaces ? "Replace key" : "Add key"}
+              <Button type="submit">
+                <ListPlus data-icon="inline-start" />
+                {replaces ? "Queue replacement" : "Queue key"}
               </Button>
             </div>
           </SheetFooter>
@@ -353,33 +347,20 @@ function AddKey({
 function Rotate({
   keyRecord,
   onClose,
-  mac,
-  after,
 }: {
   keyRecord: VaultKey | null;
   onClose: () => void;
-  mac: boolean;
-  after: () => Promise<void>;
 }) {
   const [secret, setSecret] = useState("");
-  const [busy, setBusy] = useState(false);
   const close = () => {
     setSecret("");
     onClose();
   };
-  const submit = async (event: FormEvent) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!keyRecord || !secret) return;
-    setBusy(true);
-    const body = { secret };
-    const done = await run(
-      () => vault("POST", `/keys/${segment(keyRecord.name)}/rotate`, body, `rotate ${keyRecord.name}`),
-      { done: `Rotated ${keyRecord.name}`, mac, after },
-    );
-    body.secret = "";
-    setSecret("");
-    setBusy(false);
-    if (done !== undefined) onClose();
+    enqueue({ action: "rotate_key", name: keyRecord.name, secret });
+    close();
   };
   return (
     <AlertDialog open={keyRecord !== null} onOpenChange={(details) => !details.open && close()}>
@@ -391,7 +372,7 @@ function Rotate({
             </AlertDialogMedia>
             <AlertDialogTitle>Rotate {keyRecord?.name}</AlertDialogTitle>
             <AlertDialogDescription>
-              The new secret replaces the old one at once and is never shown again. Approved URLs stay as they are.
+              On Apply the new secret replaces the old one and is never shown again. Approved URLs stay as they are.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Field>
@@ -407,9 +388,8 @@ function Rotate({
           </Field>
           <AlertDialogFooter>
             <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
-            <Button type="submit" disabled={!secret || busy}>
-              {busy && <Spinner data-icon="inline-start" />}
-              Rotate
+            <Button type="submit" disabled={!secret}>
+              Queue rotation
             </Button>
           </AlertDialogFooter>
         </form>

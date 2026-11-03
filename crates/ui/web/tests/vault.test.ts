@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  batchBody,
   Cancelled,
+  changeTarget,
+  describeChange,
+  madeTokens,
+  presenceKind,
   decisionTone,
   endpointLabel,
   host,
@@ -175,14 +180,14 @@ describe("presence", () => {
     let asked = 0;
     const out = await withPresence(
       true,
-      { mac: true, waiting: (on) => seen.push(on), ask: async () => (asked++, "x") },
+      { kind: "touch_id", waiting: (on) => seen.push(on), ask: async () => (asked++, "x") },
       async () => "done",
     );
     expect(out).toBe("done");
     expect(seen).toEqual([true, false]);
     expect(asked).toBe(0);
     await expect(
-      withPresence(true, { mac: true, waiting: () => {}, ask: async () => "x" }, async () => {
+      withPresence(true, { kind: "touch_id", waiting: () => {}, ask: async () => "x" }, async () => {
         throw presenceFailure;
       }),
     ).rejects.toBe(presenceFailure);
@@ -190,7 +195,7 @@ describe("presence", () => {
 
   test("elsewhere a 401 asks once and resends with the passphrase", async () => {
     const sent: (string | undefined)[] = [];
-    const out = await withPresence(true, { mac: false, waiting: () => {}, ask: async () => "hunter2" }, async (passphrase) => {
+    const out = await withPresence(true, { kind: "passphrase", waiting: () => {}, ask: async () => "hunter2" }, async (passphrase) => {
       sent.push(passphrase);
       if (!passphrase) throw presenceFailure;
       return "ok";
@@ -202,7 +207,7 @@ describe("presence", () => {
   test("a wrong passphrase is not asked for again", async () => {
     let asked = 0;
     await expect(
-      withPresence(true, { mac: false, waiting: () => {}, ask: async () => (asked++, "wrong") }, async () => {
+      withPresence(true, { kind: "passphrase", waiting: () => {}, ask: async () => (asked++, "wrong") }, async () => {
         throw presenceFailure;
       }),
     ).rejects.toBe(presenceFailure);
@@ -211,7 +216,7 @@ describe("presence", () => {
 
   test("cancel changes nothing", async () => {
     await expect(
-      withPresence(true, { mac: false, waiting: () => {}, ask: async () => null }, async () => {
+      withPresence(true, { kind: "passphrase", waiting: () => {}, ask: async () => null }, async () => {
         throw presenceFailure;
       }),
     ).rejects.toBeInstanceOf(Cancelled);
@@ -221,12 +226,72 @@ describe("presence", () => {
     const other = Object.assign(new Error("nope"), { status: 400, code: "bad_request" });
     let asked = 0;
     const ask = async () => (asked++, "x");
-    await expect(withPresence(false, { mac: false, waiting: () => {}, ask }, async () => {
+    await expect(withPresence(false, { kind: "passphrase", waiting: () => {}, ask }, async () => {
       throw presenceFailure;
     })).rejects.toBe(presenceFailure);
-    await expect(withPresence(true, { mac: false, waiting: () => {}, ask }, async () => {
+    await expect(withPresence(true, { kind: "passphrase", waiting: () => {}, ask }, async () => {
       throw other;
     })).rejects.toBe(other);
+    expect(asked).toBe(0);
+  });
+});
+
+describe("the batch", () => {
+  test("changes are sent as the daemon's tagged actions, in order", () => {
+    const body = batchBody([
+      { action: "put_key", name: "stripe", description: "d", approved_urls: ["https://api.stripe.com/v1/"], inject: "bearer", secret: "s" },
+      { action: "add_sandbox", name: "box" },
+      { action: "create_token", keys: ["stripe"], sandbox: "box", mode: "app", methods: "read" },
+      { action: "revoke_token", id: "tok_1" },
+    ]);
+    expect(body.actions.map((action) => action.action)).toEqual(["put_key", "add_sandbox", "create_token", "revoke_token"]);
+    expect(body.actions[0]).toMatchObject({ name: "stripe", secret: "s" });
+  });
+
+  test("each change says what it does", () => {
+    expect(describeChange({ action: "delete_key", name: "stripe" })).toBe("Delete the key stripe");
+    expect(describeChange({ action: "add_sandbox", name: "vm", tcp: "1.2.3.4:1", peers: ["5.6.7.8"] })).toBe("Add the sandbox vm on 1.2.3.4:1");
+    expect(describeChange({ action: "create_token", keys: ["a", "b"], sandbox: "host", mode: "agent", methods: "read" })).toBe(
+      "Make an agent token for a, b in host",
+    );
+  });
+
+  test("rows find their queued change", () => {
+    expect(changeTarget({ action: "revoke_token", id: "tok_1" })).toBe("tok_1");
+    expect(changeTarget({ action: "remove_sandbox", name: "box" })).toBe("box");
+    expect(changeTarget({ action: "create_token", keys: [], sandbox: "", mode: "app", methods: "read" })).toBeNull();
+  });
+
+  test("only new tokens are shown, without their revoke value", () => {
+    const tokens = madeTokens([
+      { key: { name: "stripe" } },
+      { id: "tok_2", token: "secret-token", revoke: "secret-revoke", keys: [], sandbox: "host", mode: "app" },
+      { revoked: "tok_1" },
+    ]);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].token).toBe("secret-token");
+    expect(tokens[0]).not.toHaveProperty("revoke");
+  });
+});
+
+describe("presence kind", () => {
+  test("the daemon's word wins, else the platform decides", () => {
+    expect(presenceKind({ platform: "linux", presence: "polkit" })).toBe("polkit");
+    expect(presenceKind({ platform: "macos" })).toBe("touch_id");
+    expect(presenceKind({ platform: "linux" })).toBe("passphrase");
+    expect(presenceKind(null)).toBe("passphrase");
+  });
+
+  test("polkit waits for the system prompt and never asks for a passphrase", async () => {
+    const seen: boolean[] = [];
+    let asked = 0;
+    const failure = Object.assign(new Error("no"), { status: 401, code: "presence_required" });
+    await expect(
+      withPresence(true, { kind: "polkit", waiting: (on) => seen.push(on), ask: async () => (asked++, "x") }, async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    expect(seen).toEqual([true, false]);
     expect(asked).toBe(0);
   });
 });

@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { answerPassphrase, usePresence } from "@/hooks/use-vault";
 
 export function Presence() {
-  const { waiting, action, ask } = usePresence();
+  const { kind, waiting, action, ask } = usePresence();
   return (
     <>
       {waiting > 0 && (
@@ -31,7 +31,9 @@ export function Presence() {
               <Fingerprint className="size-5" />
             </span>
             <span className="flex flex-col leading-tight">
-              <span className="text-sm font-medium">Confirm with Touch ID on this Mac</span>
+              <span className="text-sm font-medium">
+                {kind === "polkit" ? "Confirm in the system prompt" : "Confirm with Touch ID on this Mac"}
+              </span>
               <span className="text-xs text-muted-foreground">The vault asks before it will {action}.</span>
             </span>
           </div>

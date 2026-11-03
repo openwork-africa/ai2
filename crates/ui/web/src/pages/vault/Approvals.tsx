@@ -18,7 +18,7 @@ const left = (created: string, now: number) => {
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-export default function Approvals({ mac }: { mac: boolean }) {
+export default function Approvals() {
   const { approvals, error } = useApprovals();
   const [now, setNow] = useState(() => Date.now());
   const [deciding, setDeciding] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export default function Approvals({ mac }: { mac: boolean }) {
     setDeciding(approval.id);
     await run(
       () => vault("POST", `/approvals/${segment(approval.id)}`, { approve }, `${approve ? "allow" : "refuse"} this call`),
-      { done: approve ? "Allowed the call" : "Refused the call", mac, after: refreshApprovals },
+      { done: approve ? "Allowed the call" : "Refused the call", after: refreshApprovals },
     );
     setDeciding(null);
   };

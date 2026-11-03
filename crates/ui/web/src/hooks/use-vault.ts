@@ -1,40 +1,57 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
-import { type Approval, isMac, type VaultStatus, withPresence } from "@/lib/vault";
+import {
+  type Approval,
+  batchBody,
+  type Change,
+  madeTokens,
+  type NewToken,
+  type PresenceKind,
+  presenceKind,
+  type VaultStatus,
+  withPresence,
+} from "@/lib/vault";
 
 const PASSPHRASE_HEADER = "x-vault-passphrase";
 
-type Ask = { action: string; resolve: (passphrase: string | null) => void };
-
-type PresenceState = { waiting: number; action: string; ask: Ask | null };
-
-let presence: PresenceState = { waiting: 0, action: "", ask: null };
-let platform = "";
-const presenceListeners = new Set<() => void>();
-
-const setPresence = (next: Partial<PresenceState>) => {
-  presence = { ...presence, ...next };
-  presenceListeners.forEach((listener) => listener());
-};
-
-const subscribePresence = (listener: () => void) => {
-  presenceListeners.add(listener);
-  return () => {
-    presenceListeners.delete(listener);
+const store = <S>(initial: S) => {
+  let state = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => state,
+    set: (next: S) => {
+      state = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    listeners,
   };
 };
 
-export const usePresence = () => useSyncExternalStore(subscribePresence, () => presence);
+type Ask = { action: string; resolve: (passphrase: string | null) => void };
 
-export const setPlatform = (value: string) => {
-  platform = value;
-};
+type PresenceState = { kind: PresenceKind; waiting: number; action: string; ask: Ask | null };
+
+const presence = store<PresenceState>({ kind: "passphrase", waiting: 0, action: "", ask: null });
+
+const patchPresence = (next: Partial<PresenceState>) => presence.set({ ...presence.get(), ...next });
+
+export const usePresence = () => useSyncExternalStore(presence.subscribe, presence.get);
 
 export const answerPassphrase = (passphrase: string | null) => {
-  const ask = presence.ask;
-  setPresence({ ask: null });
+  const ask = presence.get().ask;
+  patchPresence({ ask: null });
   ask?.resolve(passphrase);
 };
+
+const revision = store(0);
+
+const bump = () => revision.set(revision.get() + 1);
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -44,9 +61,12 @@ export const vault = <T>(method: Method, path: string, body?: unknown, action: s
   return withPresence<T>(
     write,
     {
-      mac: isMac(platform),
-      waiting: (on) => setPresence({ waiting: presence.waiting + (on ? 1 : -1), action: on ? asking : presence.action }),
-      ask: () => new Promise<string | null>((resolve) => setPresence({ ask: { action: asking, resolve } })),
+      kind: presence.get().kind,
+      waiting: (on) => {
+        const now = presence.get();
+        patchPresence({ waiting: now.waiting + (on ? 1 : -1), action: on ? asking : now.action });
+      },
+      ask: () => new Promise<string | null>((resolve) => patchPresence({ ask: { action: asking, resolve } })),
     },
     (passphrase) => api<T>(method, `/api/vault${path}`, body, passphrase ? { [PASSPHRASE_HEADER]: passphrase } : {}),
   );
@@ -60,6 +80,7 @@ export function useVaultQuery<T>(path: string | null, intervalMs = 0): Query<T> 
     error: null,
     loading: path !== null,
   });
+  const seen = useSyncExternalStore(revision.subscribe, revision.get);
 
   const reload = useCallback(async () => {
     if (path === null) return;
@@ -82,7 +103,7 @@ export function useVaultQuery<T>(path: string | null, intervalMs = 0): Query<T> 
       alive = false;
       if (timer) window.clearInterval(timer);
     };
-  }, [path, intervalMs, reload]);
+  }, [path, intervalMs, reload, seen]);
 
   return { ...state, reload };
 }
@@ -90,43 +111,68 @@ export function useVaultQuery<T>(path: string | null, intervalMs = 0): Query<T> 
 export const useVaultStatus = () => {
   const query = useVaultQuery<VaultStatus>("/status");
   useEffect(() => {
-    if (query.data) setPlatform(query.data.platform);
+    if (query.data) patchPresence({ kind: presenceKind(query.data) });
   }, [query.data]);
   return query;
+};
+
+export type Queued = { id: number; change: Change };
+
+const queue = store<Queued[]>([]);
+let nextId = 1;
+
+export const useQueue = () => useSyncExternalStore(queue.subscribe, queue.get);
+
+export const enqueue = (change: Change) => queue.set([...queue.get(), { id: nextId++, change }]);
+
+export const dequeue = (id: number) => queue.set(queue.get().filter((entry) => entry.id !== id));
+
+export const discardQueue = () => queue.set([]);
+
+export const applyQueue = async (): Promise<NewToken[]> => {
+  const entries = queue.get();
+  if (!entries.length) return [];
+  const count = entries.length;
+  const out = await vault<{ results: unknown[] }>(
+    "POST",
+    "/batch",
+    batchBody(entries.map((entry) => entry.change)),
+    count === 1 ? "apply 1 change" : `apply ${count} changes`,
+  );
+  const sent = new Set(entries.map((entry) => entry.id));
+  queue.set(queue.get().filter((entry) => !sent.has(entry.id)));
+  bump();
+  return madeTokens(out.results ?? []);
 };
 
 const POLL_MS = 3000;
 
 type ApprovalsState = { approvals: Approval[] | null; error: string | null };
 
-let approvals: ApprovalsState = { approvals: null, error: null };
-const approvalListeners = new Set<() => void>();
+const approvals = store<ApprovalsState>({ approvals: null, error: null });
 let approvalTimer = 0;
-
-const publishApprovals = (next: ApprovalsState) => {
-  approvals = next;
-  approvalListeners.forEach((listener) => listener());
-};
 
 export const refreshApprovals = async () => {
   try {
     const data = await api<{ approvals: Approval[] }>("GET", "/api/vault/approvals");
-    publishApprovals({ approvals: data.approvals, error: null });
+    approvals.set({ approvals: data.approvals, error: null });
   } catch (failure) {
-    publishApprovals({ approvals: approvals.approvals, error: (failure as Error).message });
+    approvals.set({ approvals: approvals.get().approvals, error: (failure as Error).message });
   }
 };
 
 const subscribeApprovals = (listener: () => void) => {
-  approvalListeners.add(listener);
-  if (approvalListeners.size === 1) {
+  const stop = approvals.subscribe(listener);
+  if (approvals.listeners.size === 1) {
     refreshApprovals();
     approvalTimer = window.setInterval(() => !document.hidden && refreshApprovals(), POLL_MS);
   }
   return () => {
-    approvalListeners.delete(listener);
-    if (!approvalListeners.size) window.clearInterval(approvalTimer);
+    stop();
+    if (!approvals.listeners.size) window.clearInterval(approvalTimer);
   };
 };
 
-export const useApprovals = () => useSyncExternalStore(subscribeApprovals, () => approvals);
+export const useApprovals = () => useSyncExternalStore(subscribeApprovals, approvals.get);
+
+export const presenceNow = () => presence.get().kind;
