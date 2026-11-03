@@ -80,13 +80,11 @@ pub struct Context {
 }
 
 pub fn print(value: &impl Serialize) {
-    let mut out = std::io::stdout().lock();
-    let _ = serde_json::to_writer(&mut out, value)
-        .map_err(std::io::Error::from)
-        .and_then(|_| {
-            out.write_all(b"\n")?;
-            out.flush()
-        });
+    let _ = writeln!(
+        std::io::stdout().lock(),
+        "{}",
+        serde_json::to_string(value).unwrap_or_default()
+    );
 }
 
 impl Context {
