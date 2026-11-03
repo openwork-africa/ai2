@@ -398,7 +398,7 @@ impl Step for PresenceStep {
             return self.check(ctx);
         }
         ctx.runner
-            .say("choose the vault passphrase; it is asked for every change to the vault");
+            .say("choose the vault passphrase; it is asked for vault changes when your login password cannot be");
         let first = ctx
             .runner
             .ask_passphrase("Vault passphrase: ", "The same again: ")?;

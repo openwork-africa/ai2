@@ -46,7 +46,7 @@ fn containers(os: &Os) -> StepInfo {
             "containers",
             "Sandboxes",
             "Each sandbox gets its own socket to the vault, and only you and the vault's group can open it.",
-            "systemd-run has been making one-off services since systemd 205, in 2013. Here each one gets a socket folder nobody else can open.",
+            "Unix sockets have guarded local services since 4.2BSD, in 1983. Each one here opens only for you and the vault's group.",
         ),
         _ => step(
             "containers",
@@ -129,7 +129,7 @@ pub fn inputs_info() -> Vec<InputInfo> {
         InputInfo {
             kind: "passphrase",
             title: "Choose the vault passphrase",
-            why: "It is asked for every change to the vault. It is hashed with Argon2id; the vault never keeps it.",
+            why: "It is asked for vault changes when the machine cannot ask for your login password. It is hashed with Argon2id; the vault never keeps it.",
             fields: vec![
                 Field {
                     label: "Passphrase",

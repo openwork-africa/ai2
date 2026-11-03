@@ -147,7 +147,7 @@ fn creds(runner: &dyn Runner) -> Result<State> {
 }
 
 fn passphrase(runner: &dyn Runner) -> Result<State> {
-    runner.say("choose the vault passphrase; it is asked for every change to the vault");
+    runner.say("choose the vault passphrase; it is asked for vault changes when your login password cannot be");
     runner.ask_passphrase("Vault passphrase: ", "The same again: ")?;
     runner.say("hashing the passphrase with Argon2id");
     pause(900);

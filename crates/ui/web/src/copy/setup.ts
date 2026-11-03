@@ -14,7 +14,7 @@ const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
     linux: {
       title: "Sandboxes",
       why: "Each sandbox gets its own socket to the vault, and only you and the vault's group can open it.",
-      fact: "`systemd-run` has been making one-off services since systemd 205, in 2013. Here each one gets a socket folder nobody else can open.",
+      fact: "Unix sockets have guarded local services since 4.2BSD, in 1983. Each one here opens only for you and the vault's group.",
     },
     unsupported: {
       title: "Containers",

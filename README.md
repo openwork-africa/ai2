@@ -63,7 +63,7 @@ There is no account and no sign-up. Your keys stay on this machine.
 
 - `ai2`, one binary.
 - The vault service, the only thing that ever holds your keys. It starts when you log in.
-- A place for agents to run boxed in: Apple's `container` on macOS 26 with Apple silicon, or a throwaway systemd unit on Linux. Where neither is there, setup says so, and agents run on the host.
+- A place for agents to run boxed in: Apple's `container` on macOS 26 with Apple silicon. Elsewhere, setup says so, and agents run on the host, each sandbox with its own socket to the vault.
 - The dashboard, a page on `http://127.0.0.1:7797` that starts when you log in and keeps your apps running. `ai2 ui` opens it.
 
 ### First things to try
