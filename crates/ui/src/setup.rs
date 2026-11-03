@@ -109,10 +109,28 @@ pub fn run(ui: &crate::Options, setup: ::setup::Options, launch: Launch) -> Resu
         .enable_all()
         .build()
         .context("starting the ui runtime")?;
+    let ready = ::setup::setup(&setup, true)
+        .map(|(ok, _)| ok)
+        .unwrap_or(false);
     runtime.block_on(async move {
         let server = Server::bind(launch.port, ui).await?;
+        if ready {
+            return home(server, launch.open).await;
+        }
         serve(server, Engine::system(setup), false, launch.open).await
     })
+}
+
+async fn home(server: Server, open: bool) -> Result<bool> {
+    let url = server.url(None);
+    println!("{}", json!({ "url": url, "setup": "done" }));
+    if open {
+        if let Err(error) = crate::open(&url) {
+            eprintln!("ai2: could not open the browser, open the url yourself: {error:#}");
+        }
+    }
+    server.serve().await?;
+    Ok(true)
 }
 
 pub async fn serve(server: Server, engine: Engine, check: bool, open: bool) -> Result<bool> {

@@ -39,7 +39,7 @@ function NoReviews() {
           <ShieldCheck />
         </EmptyMedia>
         <EmptyTitle>Nothing has been reviewed yet</EmptyTitle>
-        <EmptyDescription>A review is what ai squared writes after an agent run: the exploits against its stack and a read of every file it changed. The first one arrives once the command below has run in a folder an agent has worked in.</EmptyDescription>
+        <EmptyDescription>After an agent works on something, run the command below to check it's safe.</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Code>ai2 --objective "Add a pricing page"</Code>
