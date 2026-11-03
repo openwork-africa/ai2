@@ -17,6 +17,7 @@ pub struct Item {
 
 pub struct Context {
     pub folder: PathBuf,
+    pub out: PathBuf,
     pub objective: String,
     pub changed: Vec<String>,
     pub days: u64,

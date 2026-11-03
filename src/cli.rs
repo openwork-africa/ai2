@@ -236,6 +236,7 @@ fn execute(
     let deadline = Instant::now() + Duration::from_secs(cli.budget.saturating_mul(60));
     let mut ctx = Context {
         folder: folder.clone(),
+        out: out.clone(),
         objective: cli.objective.clone(),
         changed: cli.changed.clone(),
         days: cli.days,

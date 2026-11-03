@@ -287,26 +287,119 @@ fn rrf(
         model_name: rrf_step.model_name.clone(),
     };
     let mut command = (reviewer.command)(&task_ctx);
-    let log = std::fs::File::create(work.join("harness.log"))?;
-    let status = run(
+    let log_path = work.join("harness.log");
+    let log = std::fs::File::create(&log_path)?;
+    let ran = run(
         command
             .current_dir(&setup.folder)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log),
         rrf_step.limit,
-    )?;
-    let text = std::fs::read_to_string(&out).map_err(|_| {
-        anyhow!(
-            "{} ended ({status}) without writing its findings; its log is {}",
+    );
+    let status = match ran {
+        Ok(status) => status,
+        Err(error) => bail!("{error:#}{}", failure_trail(&log_path, &setup.out)),
+    };
+    let text = match std::fs::read_to_string(&out) {
+        Ok(text) => text,
+        Err(_) => bail!(
+            "{} ended ({status}) without writing its findings{}",
             reviewer.label,
-            work.join("harness.log").display()
-        )
-    })?;
-    let answer: Answer =
-        serde_json::from_str(&text).context("the findings were not in the expected shape")?;
+            failure_trail(&log_path, &setup.out)
+        ),
+    };
+    let answer: Answer = match serde_json::from_str(&text) {
+        Ok(answer) => answer,
+        Err(error) => bail!(
+            "the findings were not in the expected shape: {error}{}",
+            failure_trail(&log_path, &setup.out)
+        ),
+    };
     Ok((RRF.rate(&answer.factors), answer.findings))
 }
+
+const LOG_TAIL: usize = 4000;
+
+fn failure_trail(log: &Path, out: &Path) -> String {
+    let mut trail = String::new();
+    match keep_log(log, out) {
+        Ok(kept) => trail.push_str(&format!("; its full log was kept at {}", kept.display())),
+        Err(_) => trail.push_str("; its log could not be kept"),
+    }
+    let tail = log_tail(log);
+    if tail.is_empty() {
+        trail.push_str("; it wrote nothing");
+    } else {
+        trail.push_str(&format!("; the end of its output:\n{tail}"));
+    }
+    trail
+}
+
+fn keep_log(log: &Path, out: &Path) -> Result<PathBuf> {
+    std::fs::create_dir_all(out)?;
+    let kept = out.join("harness.log");
+    let bytes = std::fs::read(log)?;
+    write_private_bytes(&kept, &bytes)?;
+    Ok(kept)
+}
+
+#[cfg(unix)]
+fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    f.write_all(bytes)?;
+    Ok(())
+}
+#[cfg(not(unix))]
+fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+pub fn log_tail(log: &Path) -> String {
+    let Ok(bytes) = std::fs::read(log) else {
+        return String::new();
+    };
+    let redacted = redact(&String::from_utf8_lossy(&bytes));
+    tail_of(redacted.trim_end(), LOG_TAIL).to_string()
+}
+
+fn tail_of(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut start = text.len() - limit;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
+pub fn redact(text: &str) -> String {
+    static PATTERNS: std::sync::OnceLock<[regex::Regex; 3]> = std::sync::OnceLock::new();
+    let [bearer, key, named] = PATTERNS.get_or_init(|| {
+        [
+            regex::Regex::new(r"(?i)\bBearer\s+\S+").expect("bearer pattern"),
+            regex::Regex::new(r"\bsk-[A-Za-z0-9_-]{8,}").expect("key pattern"),
+            regex::Regex::new(
+                r#"(?i)((?:api[_-]?key|token|secret|password)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|\S+)"#,
+            )
+            .expect("named pattern"),
+        ]
+    });
+    let text = bearer.replace_all(text, "Bearer [redacted]");
+    let text = key.replace_all(&text, "[redacted]");
+    named.replace_all(&text, "${1}[redacted]").into_owned()
+}
+
 pub fn prompt(skills: &[String], out: &Path, task: &serde_json::Value) -> Result<String> {
     Ok(prompts::RRF
         .replace("{skills}", &skills.join("\n"))
@@ -415,6 +508,92 @@ mod tests {
         assert!(pick_from(&rs, "none").unwrap().is_none());
         assert!(pick_from(&rs, "dm").is_err());
     }
+    #[test]
+    fn secrets_are_redacted_from_a_log() {
+        let text = "Authorization: Bearer abc.def-123\nkey sk-ant-api03-ABCDEFGH12345 used\napi_key=hunter2 next\n\"token\": \"a b c\", ok\nPASSWORD: pw1 end\nmax_tokens: 5\n";
+        let clean = redact(text);
+        for secret in ["abc.def-123", "ABCDEFGH12345", "hunter2", "a b c", "pw1"] {
+            assert!(!clean.contains(secret), "{secret} in {clean}");
+        }
+        assert!(clean.contains("Bearer [redacted]"));
+        assert!(clean.contains("max_tokens: 5"));
+        assert!(clean.contains("next"));
+    }
+
+    #[test]
+    fn the_tail_never_splits_a_character() {
+        let text = format!("{}{}", "a", "é".repeat(10));
+        let tail = tail_of(&text, 5);
+        assert_eq!(tail, "éé");
+        assert_eq!(tail_of("short", 100), "short");
+    }
+
+    fn failing_reviewer() -> Reviewer {
+        Reviewer {
+            id: "fake",
+            label: "fake",
+            available: || true,
+            command: |_| {
+                let mut c = Command::new("sh");
+                c.args([
+                    "-c",
+                    "echo starting; echo 'no model: Bearer sekrit-token-1' >&2; exit 1",
+                ]);
+                c
+            },
+        }
+    }
+
+    fn setup(folder: &Path, out: &Path) -> Context {
+        Context {
+            folder: folder.to_path_buf(),
+            out: out.to_path_buf(),
+            objective: "o".into(),
+            changed: Vec::new(),
+            days: 7,
+            spec: crate::scan::Spec {
+                os: "Linux".into(),
+                languages: Vec::new(),
+                libraries: Vec::new(),
+            },
+            model: None,
+            args: clap::Command::new("t").get_matches_from(["t"]),
+            deadline: None,
+        }
+    }
+
+    #[test]
+    fn a_harness_that_fails_leaves_its_cause_in_the_error_and_in_out() {
+        let folder = tempfile::tempdir().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let reviewer = failing_reviewer();
+        let step = Rrf::new(vec![reviewer]);
+        let ctx = setup(folder.path(), out.path());
+        let error = rrf(reviewer, &step, &ctx, &serde_json::json!({}), work.path())
+            .err()
+            .expect("the harness failed");
+        let message = format!("{error:#}");
+        println!("{message}");
+        assert!(message.contains("fake ended (exit status: 1) without writing its findings"));
+        assert!(message.contains("no model: Bearer [redacted]"));
+        assert!(message.contains("starting"));
+        assert!(!message.contains("sekrit-token-1"));
+        let kept = out.path().join("harness.log");
+        assert!(message.contains(&kept.display().to_string()));
+        assert!(std::fs::read_to_string(&kept)
+            .unwrap()
+            .contains("sekrit-token-1"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&kept).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
     #[test]
     fn cleanup_removes_the_scratch_after_an_error() {
         let dir = scratch().unwrap();
