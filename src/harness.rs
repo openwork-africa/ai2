@@ -62,20 +62,24 @@ mod skill_command {
 #[cfg(feature = "harness")]
 mod command {
     use crate::cli::{exit_code, Subcommand};
-    use anyhow::Result;
+    use anyhow::{anyhow, Result};
     use clap::{ArgMatches, FromArgMatches, Subcommand as _};
     use harness::cli::{Context as HarnessContext, HarnessCommand};
     use harness::Registry;
     use std::path::PathBuf;
     use std::process::ExitCode;
+    use std::sync::Mutex;
 
     pub struct HarnessSubcommand {
-        pub registry: Registry,
+        registry: Mutex<Option<Registry>>,
         pub state: PathBuf,
     }
     impl HarnessSubcommand {
         pub fn new(registry: Registry, state: PathBuf) -> Self {
-            Self { registry, state }
+            Self {
+                registry: Mutex::new(Some(registry)),
+                state,
+            }
         }
     }
     impl Subcommand for HarnessSubcommand {
@@ -83,20 +87,13 @@ mod command {
             harness_command()
         }
         fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
-            run_harness(self.registry.clone_for_run(), self.state.clone(), matches).map(exit_code)
-        }
-    }
-
-    trait RegistryRun {
-        fn clone_for_run(&self) -> Registry;
-    }
-    impl RegistryRun for Registry {
-        fn clone_for_run(&self) -> Registry {
-            let mut registry = Registry::default();
-            for setup in self.all() {
-                registry.put(setup.clone(), None);
-            }
-            registry
+            let registry = self
+                .registry
+                .lock()
+                .map_err(|_| anyhow!("the harness registry is poisoned"))?
+                .take()
+                .ok_or_else(|| anyhow!("the harness subcommand runs once"))?;
+            run_harness(registry, self.state.clone(), matches).map(exit_code)
         }
     }
 
@@ -121,5 +118,40 @@ mod command {
             state,
         })
         .run(command)
+    }
+}
+
+#[cfg(all(test, feature = "harness"))]
+mod tests {
+    use super::*;
+    use crate::cli::Subcommand;
+
+    #[test]
+    fn an_install_runs_the_registrys_hooks() {
+        let state = tempfile::tempdir().unwrap();
+        let marker = state.path().join("hook-ran");
+        let mut registry = Registry::default();
+        registry.put(
+            Setup {
+                id: "noop".into(),
+                label: "Noop".into(),
+                command: "true".into(),
+                install: "true".into(),
+                ..Setup::default()
+            },
+            None,
+        );
+        let seen = marker.clone();
+        registry.on_installed(Box::new(move |setup, _| {
+            std::fs::write(&seen, &setup.id)?;
+            Ok(())
+        }));
+        let sub = HarnessSubcommand::new(registry, state.path().to_path_buf());
+        let matches = sub
+            .command()
+            .try_get_matches_from(["harness", "install", "noop"])
+            .unwrap();
+        sub.run(&matches).unwrap();
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "noop");
     }
 }
