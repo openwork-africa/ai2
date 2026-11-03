@@ -121,6 +121,10 @@ impl Model {
         format!("{}/{}", self.provider_name, self.id)
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.provider.base_url
+    }
+
     pub fn ask<T: DeserializeOwned>(&self, system: &str, input: &str) -> Result<T> {
         let answer = self.text(system, input, &ASKING)?;
         match parse(&answer) {

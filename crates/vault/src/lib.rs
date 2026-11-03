@@ -1,16 +1,25 @@
 mod admin;
+pub mod api;
 mod approvals;
+mod changes;
 pub mod cli;
-mod client;
+pub mod client;
 pub mod crypto;
 mod daemon;
 mod gateway;
+mod guard;
 pub mod http;
 mod inject;
+mod migrate;
+mod openapi;
 mod policy;
 mod scrub;
+mod skill;
 mod store;
+#[cfg(test)]
+mod testing;
 pub mod time;
+mod ttyagent;
 mod vet;
 mod with;
 

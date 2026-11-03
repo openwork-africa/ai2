@@ -46,21 +46,11 @@ struct Answer {
     factors: BTreeMap<String, Scored>,
 }
 
-pub struct Scratch {
-    pub dir: PathBuf,
-}
-impl Scratch {
-    pub fn path(&self) -> &Path {
-        &self.dir
-    }
-}
 pub struct ReviewTask {
-    pub folder: PathBuf,
     pub prompt: String,
     pub prompt_file: PathBuf,
     pub skills: PathBuf,
     pub scratch: PathBuf,
-    pub out: PathBuf,
     pub providers: Option<PathBuf>,
     pub model_name: Option<String>,
 }
@@ -109,7 +99,7 @@ fn pi_command(task: &ReviewTask) -> Command {
         let agent_dir = task.scratch.join("pi");
         let _ = make_private_dir(&agent_dir);
         if let Ok(text) = std::fs::read_to_string(providers) {
-            let _ = write_private(&agent_dir.join("models.json"), &text);
+            let _ = write_private_bytes(&agent_dir.join("models.json"), text.as_bytes());
         }
         c.env("PI_CODING_AGENT_DIR", agent_dir);
     }
@@ -131,7 +121,6 @@ pub fn pick_from(reviewers: &[Reviewer], choice: &str) -> Result<Option<Reviewer
             .ok_or_else(|| anyhow!("no reviewer called {id} is registered")),
     }
 }
-#[cfg(unix)]
 fn make_private_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
@@ -140,33 +129,10 @@ fn make_private_dir(dir: &Path) -> Result<()> {
         .create(dir)?;
     Ok(())
 }
-#[cfg(not(unix))]
-fn make_private_dir(dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(dir)?;
-    Ok(())
-}
-#[cfg(unix)]
-fn write_private(path: &Path, text: &str) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
-    use std::io::Write as _;
-    f.write_all(text.as_bytes())?;
-    Ok(())
-}
-#[cfg(not(unix))]
-fn write_private(path: &Path, text: &str) -> Result<()> {
-    std::fs::write(path, text)?;
-    Ok(())
-}
 pub struct Rrf {
     reviewers: Vec<Reviewer>,
     chosen: Option<Reviewer>,
-    scratch: Option<PathBuf>,
+    scratch: Option<tempfile::TempDir>,
     providers: Option<PathBuf>,
     model_name: Option<String>,
     limit: Duration,
@@ -183,9 +149,6 @@ impl Rrf {
             limit: RUN_LIMIT,
             choice: "auto".into(),
         }
-    }
-    pub fn scratch_path(&self) -> Option<&Path> {
-        self.scratch.as_deref()
     }
 }
 impl Default for Rrf {
@@ -223,9 +186,7 @@ impl Step for Rrf {
         Ok(())
     }
     fn cleanup(&mut self) {
-        if let Some(dir) = self.scratch.take() {
-            let _ = std::fs::remove_dir_all(dir);
-        }
+        self.scratch.take();
     }
     fn rate(&self, ctx: &Context, found: &Found) -> Result<Rated> {
         let Some(reviewer) = self.chosen else {
@@ -248,9 +209,10 @@ impl Step for Rrf {
         let task = serde_json::json!({ "objective": ctx.objective, "changed": ctx.changed, "technologies": technologies, "exploits": found.exploits });
         let work = self
             .scratch
-            .clone()
+            .as_ref()
+            .map(tempfile::TempDir::path)
             .ok_or_else(|| anyhow!("the reviewer scratch was not provisioned"))?;
-        let (rating, findings) = rrf(reviewer, self, ctx, &task, &work)?;
+        let (rating, findings) = rrf(reviewer, self, ctx, &task, work)?;
         Ok(Rated {
             rating: Some(rating),
             findings,
@@ -277,12 +239,10 @@ fn rrf(
     let prompt_file = work.join("prompt.md");
     std::fs::write(&prompt_file, &prompt_text)?;
     let task_ctx = ReviewTask {
-        folder: setup.folder.clone(),
         prompt: prompt_text,
         prompt_file: prompt_file.clone(),
         skills: skills.clone(),
         scratch: work.to_path_buf(),
-        out: out.clone(),
         providers: rrf_step.providers.clone(),
         model_name: rrf_step.model_name.clone(),
     };
@@ -344,7 +304,6 @@ fn keep_log(log: &Path, out: &Path) -> Result<PathBuf> {
     Ok(kept)
 }
 
-#[cfg(unix)]
 fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write as _;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -358,13 +317,8 @@ fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     f.write_all(bytes)?;
     Ok(())
 }
-#[cfg(not(unix))]
-fn write_private_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
-    std::fs::write(path, bytes)?;
-    Ok(())
-}
 
-pub fn log_tail(log: &Path) -> String {
+fn log_tail(log: &Path) -> String {
     let Ok(bytes) = std::fs::read(log) else {
         return String::new();
     };
@@ -433,6 +387,10 @@ pub fn wait(child: &mut Child, label: &str, limit: Duration) -> Result<std::proc
     }
 }
 
+fn on_path(name: &str) -> bool {
+    harness::state::on_path(name, &std::env::var("PATH").unwrap_or_default())
+}
+
 fn muse_signed_in() -> bool {
     run(
         Command::new("muse")
@@ -446,18 +404,12 @@ fn muse_signed_in() -> bool {
     .unwrap_or(false)
 }
 
-pub fn on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
-}
-
-fn scratch() -> Result<PathBuf> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("ai2-{}-{nanos}", std::process::id()));
-    make_private_dir(&dir)?;
-    Ok(dir)
+fn scratch() -> Result<tempfile::TempDir> {
+    use std::os::unix::fs::PermissionsExt;
+    Ok(tempfile::Builder::new()
+        .prefix("ai2-")
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir()?)
 }
 
 #[cfg(test)]
@@ -596,7 +548,8 @@ mod tests {
 
     #[test]
     fn cleanup_removes_the_scratch_after_an_error() {
-        let dir = scratch().unwrap();
+        let scratch_dir = scratch().unwrap();
+        let dir = scratch_dir.path().to_path_buf();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -606,7 +559,7 @@ mod tests {
             );
         }
         let mut step = Rrf {
-            scratch: Some(dir.clone()),
+            scratch: Some(scratch_dir),
             ..Rrf::default()
         };
         step.cleanup();

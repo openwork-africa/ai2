@@ -74,7 +74,7 @@ fn with(test: &Test, args: &[&str]) -> i32 {
         serve: Box::new(|_| Ok(())),
     };
     let matches = vault::command()
-        .try_get_matches_from(["vault", "with"].iter().chain(args))
+        .try_get_matches_from(["vault", "with", "--sandbox", "host"].iter().chain(args))
         .unwrap();
     match vault::outcome(&matches, &opts).unwrap() {
         Outcome::Code(code) => code,
