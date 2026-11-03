@@ -2,6 +2,7 @@ use crate::client;
 use crate::daemon::Config;
 use crate::migrate::{self, Migrate};
 use crate::policy::encode_percent;
+use crate::skill;
 use crate::with::{self, With};
 use anyhow::{bail, Result};
 use clap::{ArgMatches, FromArgMatches, Subcommand};
@@ -115,6 +116,10 @@ enum VaultCommand {
         #[arg(long, conflicts_with = "take", help = "Store every found secret")]
         all: bool,
     },
+    #[command(
+        about = "Prints the guide for AI agents: how to call the gateway and what a refusal means"
+    )]
+    Skill,
     #[command(
         about = "Runs a command with a token for some keys, and revokes the token when it exits"
     )]
@@ -541,6 +546,7 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
                 all,
             },
         ),
+        VaultCommand::Skill => Ok(skill::run()),
         VaultCommand::With {
             keys,
             sandbox,

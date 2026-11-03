@@ -10,6 +10,7 @@ mod inject;
 mod migrate;
 mod policy;
 mod scrub;
+mod skill;
 mod store;
 #[cfg(test)]
 mod testing;
