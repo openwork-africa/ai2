@@ -29,7 +29,7 @@ mcp = ["dep:mcp", "ui?/mcp"]
 agents = { path = "crates/agents", optional = true }
 anyhow = "1"
 apps = { path = "crates/apps", optional = true }
-harness = { path = "crates/harness", version = "0.1.0", optional = true }
+harness = { path = "crates/harness", version = "0.2.0", optional = true }
 keys = { path = "crates/keys", optional = true }
 mcp = { path = "crates/mcp", default-features = false, optional = true }
 setup = { path = "crates/setup", optional = true }
