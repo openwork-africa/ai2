@@ -1,5 +1,6 @@
 mod admin;
 mod bundle;
+mod harnesses;
 mod nonce;
 mod reply;
 mod routes;
