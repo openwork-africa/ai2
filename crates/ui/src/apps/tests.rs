@@ -6,7 +6,8 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
+const PNG: &[u8] =
+    b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
 
 const APP: &str = r#"
 import http.server, json, os
@@ -39,7 +40,10 @@ impl Reply {
     }
 
     fn error(&self) -> String {
-        self.json()["error"].as_str().unwrap_or_default().to_string()
+        self.json()["error"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
     }
 }
 
@@ -265,7 +269,12 @@ fn register_takes_multipart_with_an_icon_file() {
         &format!("multipart/form-data; boundary={boundary}"),
         &body,
     );
-    assert_eq!(reply.status, 201, "{}", String::from_utf8_lossy(&reply.body));
+    assert_eq!(
+        reply.status,
+        201,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
     let shown = &reply.json()["app"];
     assert_eq!(shown["id"], "form");
     assert_eq!(shown["icon"]["type"], "image/png");
@@ -324,7 +333,12 @@ fn an_app_starts_serves_its_openapi_streams_logs_and_stops() {
         "/api/apps",
         Some(demo(dir.path(), "Demo", port, "on-failure")),
     );
-    assert_eq!(reply.status, 201, "{}", String::from_utf8_lossy(&reply.body));
+    assert_eq!(
+        reply.status,
+        201,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
 
     let listed = ui.call("GET", "/api/apps", None).json();
     assert_eq!(listed["apps"][0]["running"], false);
@@ -374,11 +388,10 @@ fn an_app_starts_serves_its_openapi_streams_logs_and_stops() {
     assert!(line.line.contains("listening on"));
 
     let tail = ui.call("GET", "/api/apps/demo/logs?tail=50", None).json();
-    assert!(tail["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|l| l["line"].as_str().unwrap_or_default().contains("listening on")));
+    assert!(tail["lines"].as_array().unwrap().iter().any(|l| l["line"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("listening on")));
 
     let stopped = ui.call("POST", "/api/apps/demo/stop", None);
     assert_eq!(stopped.status, 200);

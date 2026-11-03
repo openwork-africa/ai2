@@ -52,7 +52,7 @@ function AvatarFallback({
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
-        "cn-avatar-fallback flex size-full items-center justify-center bg-fill-default text-muted-foreground rounded-[inherit] text-sm [&>svg]:size-4 [.cn-avatar[data-size="sm"]_&]:text-2xs [.cn-avatar[data-size="xs"]_&]:text-2xs [.cn-avatar[data-size="lg"]_&_>_svg]:size-5 [.cn-avatar[data-size="xl"]_&_>_svg]:size-5 [.cn-avatar[data-size="xs"]_&_>_svg]:size-3",
+        "cn-avatar-fallback flex size-full items-center justify-center bg-fill-default text-muted-foreground rounded-[inherit] text-sm [&>svg]:size-4 [.cn-avatar[data-size='sm']_&]:text-2xs [.cn-avatar[data-size='xs']_&]:text-2xs [.cn-avatar[data-size='lg']_&_>_svg]:size-5 [.cn-avatar[data-size='xl']_&_>_svg]:size-5 [.cn-avatar[data-size='xs']_&_>_svg]:size-3",
         className
       )}
       {...props}
@@ -68,7 +68,7 @@ function AvatarBadge({
     <wire.span
       data-slot="avatar-badge"
       className={cn(
-        "cn-avatar-badge absolute right-0 bottom-0 z-10 inline-flex items-center justify-center select-none bg-primary text-primary-foreground ring-background rounded-full bg-blend-color ring-2 [.cn-avatar[data-size="sm"]_&]:size-2 [.cn-avatar[data-size="sm"]_&]:[&>svg]:hidden [.cn-avatar[data-size="default"]_&]:size-2.5 [.cn-avatar[data-size="default"]_&]:[&>svg]:size-2 [.cn-avatar[data-size="lg"]_&]:size-3 [.cn-avatar[data-size="lg"]_&]:[&>svg]:size-2 [.cn-avatar[data-size="xl"]_&]:size-3 [.cn-avatar[data-size="xl"]_&]:[&>svg]:size-2 [.cn-avatar[data-size="xs"]_&]:size-2 [.cn-avatar[data-size="xs"]_&]:ring-1 [.cn-avatar[data-size="xs"]_&]:[&>svg]:hidden",
+        "cn-avatar-badge absolute right-0 bottom-0 z-10 inline-flex items-center justify-center select-none bg-primary text-primary-foreground ring-background rounded-full bg-blend-color ring-2 [.cn-avatar[data-size='sm']_&]:size-2 [.cn-avatar[data-size='sm']_&]:[&>svg]:hidden [.cn-avatar[data-size='default']_&]:size-2.5 [.cn-avatar[data-size='default']_&]:[&>svg]:size-2 [.cn-avatar[data-size='lg']_&]:size-3 [.cn-avatar[data-size='lg']_&]:[&>svg]:size-2 [.cn-avatar[data-size='xl']_&]:size-3 [.cn-avatar[data-size='xl']_&]:[&>svg]:size-2 [.cn-avatar[data-size='xs']_&]:size-2 [.cn-avatar[data-size='xs']_&]:ring-1 [.cn-avatar[data-size='xs']_&]:[&>svg]:hidden",
         className
       )}
       {...props}
@@ -97,7 +97,7 @@ function AvatarGroupCount({
     <wire.div
       data-slot="avatar-group-count"
       className={cn(
-        "cn-avatar-group-count relative flex size-8 shrink-0 items-center justify-center bg-muted text-muted-foreground ring-background rounded-full text-sm ring-2 [&>svg]:size-4 [.cn-avatar-group:has([data-size="lg"])_&]:size-10 [.cn-avatar-group:has([data-size="lg"])_&]:[&>svg]:size-5 [.cn-avatar-group:has([data-size="sm"])_&]:size-6 [.cn-avatar-group:has([data-size="sm"])_&]:text-2xs [.cn-avatar-group:has([data-size="sm"])_&]:[&>svg]:size-3 [.cn-avatar-group:has([data-size="xl"])_&]:size-12 [.cn-avatar-group:has([data-size="xl"])_&]:[&>svg]:size-5 [.cn-avatar-group:has([data-size="xs"])_&]:size-5 [.cn-avatar-group:has([data-size="xs"])_&]:text-2xs [.cn-avatar-group:has([data-size="xs"])_&]:[&>svg]:size-3",
+        "cn-avatar-group-count relative flex size-8 shrink-0 items-center justify-center bg-muted text-muted-foreground ring-background rounded-full text-sm ring-2 [&>svg]:size-4 [.cn-avatar-group:has([data-size='lg'])_&]:size-10 [.cn-avatar-group:has([data-size='lg'])_&]:[&>svg]:size-5 [.cn-avatar-group:has([data-size='sm'])_&]:size-6 [.cn-avatar-group:has([data-size='sm'])_&]:text-2xs [.cn-avatar-group:has([data-size='sm'])_&]:[&>svg]:size-3 [.cn-avatar-group:has([data-size='xl'])_&]:size-12 [.cn-avatar-group:has([data-size='xl'])_&]:[&>svg]:size-5 [.cn-avatar-group:has([data-size='xs'])_&]:size-5 [.cn-avatar-group:has([data-size='xs'])_&]:text-2xs [.cn-avatar-group:has([data-size='xs'])_&]:[&>svg]:size-3",
         className
       )}
       {...props}

@@ -67,7 +67,7 @@ const AlertDialogHeader = ({
 }: React.ComponentProps<typeof wire.div>) => (
   <wire.div
     data-slot="alert-dialog-header"
-    className={cn("cn-alert-dialog-header grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-6 [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size="default"]_&]:place-items-start [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size="default"]_&]:text-left [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size="default"]_&:has([data-slot="alert-dialog-media"])]:grid-rows-[auto_1fr]", className)}
+    className={cn("cn-alert-dialog-header grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-6 [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size='default']_&]:place-items-start [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size='default']_&]:text-left [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size='default']_&:has([data-slot='alert-dialog-media'])]:grid-rows-[auto_1fr]", className)}
     {...props}
   />
 );
@@ -78,7 +78,7 @@ const AlertDialogFooter = ({
 }: React.ComponentProps<typeof wire.div>) => (
   <wire.div
     data-slot="alert-dialog-footer"
-    className={cn("cn-alert-dialog-footer flex flex-col-reverse gap-2 sm:flex-row sm:justify-end [.cn-alert-dialog-content[data-size="sm"]_&]:grid [.cn-alert-dialog-content[data-size="sm"]_&]:grid-cols-2", className)}
+    className={cn("cn-alert-dialog-footer flex flex-col-reverse gap-2 sm:flex-row sm:justify-end [.cn-alert-dialog-content[data-size='sm']_&]:grid [.cn-alert-dialog-content[data-size='sm']_&]:grid-cols-2", className)}
     {...props}
   />
 );
@@ -89,7 +89,7 @@ const AlertDialogMedia = ({
 }: React.ComponentProps<typeof wire.div>) => (
   <wire.div
     data-slot="alert-dialog-media"
-    className={cn("cn-alert-dialog-media mb-2.5 inline-flex size-12 items-center justify-center rounded-lg bg-fill-default *:[svg:not([class*='size-'])]:size-5 [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size="default"]_&]:row-span-2 [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size="default"]_&]:mb-0", className)}
+    className={cn("cn-alert-dialog-media mb-2.5 inline-flex size-12 items-center justify-center rounded-lg bg-fill-default *:[svg:not([class*='size-'])]:size-5 [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size='default']_&]:row-span-2 [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size='default']_&]:mb-0", className)}
     {...props}
   />
 );
@@ -100,7 +100,7 @@ const AlertDialogTitle = ({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Title>) => (
   <AlertDialogPrimitive.Title
     data-slot="alert-dialog-title"
-    className={cn("cn-alert-dialog-title font-heading text-base font-medium [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size="default"]:has([data-slot="alert-dialog-media"])_&]:col-start-2", className)}
+    className={cn("cn-alert-dialog-title font-heading text-base font-medium [@media(min-width:_40rem)]:[.cn-alert-dialog-content[data-size='default']:has([data-slot='alert-dialog-media'])_&]:col-start-2", className)}
     {...props}
   />
 );

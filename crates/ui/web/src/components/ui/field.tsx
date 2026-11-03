@@ -103,7 +103,7 @@ function FieldLabel({
   return (
     <Label
       data-slot="field-label"
-      className={cn("cn-field-label flex w-fit gap-2 leading-5 has-data-checked:bg-fill-subtle has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-2xl has-[>[data-slot=field]]:border has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-fill-subtle has-[>[data-slot=field]]:has-[:focus-visible]:border-ring has-[>[data-slot=field]]:has-[:focus-visible]:ring-3 has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring/30 *:data-[slot=field]:p-3.75 [.cn-field[data-disabled="true"]_&]:opacity-50", className)}
+      className={cn("cn-field-label flex w-fit gap-2 leading-5 has-data-checked:bg-fill-subtle has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col has-[>[data-slot=field]]:rounded-2xl has-[>[data-slot=field]]:border has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-fill-subtle has-[>[data-slot=field]]:has-[:focus-visible]:border-ring has-[>[data-slot=field]]:has-[:focus-visible]:ring-3 has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring/30 *:data-[slot=field]:p-3.75 [.cn-field[data-disabled='true']_&]:opacity-50", className)}
       {...props}
     />
   );
@@ -116,7 +116,7 @@ function FieldTitle({
   return (
     <wire.div
       data-slot="field-label"
-      className={cn("cn-field-title flex w-fit items-center gap-2 text-sm font-medium [.cn-field[data-disabled="true"]_&]:opacity-50", className)}
+      className={cn("cn-field-title flex w-fit items-center gap-2 text-sm font-medium [.cn-field[data-disabled='true']_&]:opacity-50", className)}
       {...props}
     />
   );
@@ -129,7 +129,7 @@ function FieldDescription({
   return (
     <FieldPrimitive.HelperText
       data-slot="field-description"
-      className={cn("cn-field-description text-start text-sm leading-5 font-normal text-muted-foreground [[data-variant=label]+&]:-mt-4 [[data-variant=legend]+&]:-mt-3.5 last:mt-0 nth-last-2:-mt-1 [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary [.cn-field[data-orientation="horizontal"]_&]:text-balance [.cn-field:has([data-horizontal])_&]:text-balance", className)}
+      className={cn("cn-field-description text-start text-sm leading-5 font-normal text-muted-foreground [[data-variant=label]+&]:-mt-4 [[data-variant=legend]+&]:-mt-3.5 last:mt-0 nth-last-2:-mt-1 [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary [.cn-field[data-orientation='horizontal']_&]:text-balance [.cn-field:has([data-horizontal])_&]:text-balance", className)}
       {...props}
     />
   );
@@ -146,7 +146,7 @@ function FieldSeparator({
     <wire.div
       data-slot="field-separator"
       data-content={!!children}
-      className={cn("cn-field-separator relative h-5 text-sm [.cn-field-group[data-variant="outline"]_&]:-mb-2", className)}
+      className={cn("cn-field-separator relative h-5 text-sm [.cn-field-group[data-variant='outline']_&]:-mb-2", className)}
       {...props}
     >
       <Separator className="cn-field-separator-line absolute inset-0 top-1/2" />

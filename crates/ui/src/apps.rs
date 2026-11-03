@@ -104,7 +104,10 @@ fn yes(value: Option<&str>) -> bool {
     params(ListQuery),
     responses((status = 200, description = "Every registered app, whether it runs, and its OpenAPI state; openapi=1 inlines each fetched document", body = AppsReply))
 )]
-async fn list(State(state): State<Shared>, Query(query): Query<ListQuery>) -> Answer<Json<AppsReply>> {
+async fn list(
+    State(state): State<Shared>,
+    Query(query): Query<ListQuery>,
+) -> Answer<Json<AppsReply>> {
     let apps = state.apps.list(yes(query.openapi.as_deref())).await?;
     Ok(Json(AppsReply { apps }))
 }
@@ -195,9 +198,8 @@ async fn read_form(mut form: Multipart) -> apps::Result<Value> {
             _ => {}
         }
     }
-    let mut app = app.ok_or_else(|| {
-        Problem::new(400, "invalid", "Send the app as a JSON part named app.")
-    })?;
+    let mut app =
+        app.ok_or_else(|| Problem::new(400, "invalid", "Send the app as a JSON part named app."))?;
     if let (Some(icon), Some(object)) = (icon, app.as_object_mut()) {
         object.insert("icon".to_string(), serde_json::to_value(icon)?);
     }
@@ -272,8 +274,8 @@ async fn update(
 ) -> Answer<Json<AppReply>> {
     let mut value = parse_json(&body)?;
     refuse_icon_path(&mut value)?;
-    let patch: AppPatch = serde_json::from_value(value)
-        .map_err(|e| Problem::new(400, "invalid", e.to_string()))?;
+    let patch: AppPatch =
+        serde_json::from_value(value).map_err(|e| Problem::new(400, "invalid", e.to_string()))?;
     let store = state.apps.store().clone();
     let target = id.clone();
     blocking(move || store.update(&target, patch)).await?;
@@ -376,7 +378,10 @@ fn letter_tile(name: &str) -> String {
         .find(|c| c.is_alphanumeric())
         .map(|c| c.to_uppercase().collect::<String>())
         .unwrap_or_else(|| "?".to_string());
-    let hue = name.bytes().fold(0u32, |sum, b| sum.wrapping_mul(31).wrapping_add(b as u32)) % 360;
+    let hue = name
+        .bytes()
+        .fold(0u32, |sum, b| sum.wrapping_mul(31).wrapping_add(b as u32))
+        % 360;
     format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="hsl({hue} 45% 92%)"/><text x="32" y="42" font-family="system-ui, sans-serif" font-size="28" font-weight="600" text-anchor="middle" fill="hsl({hue} 40% 30%)">{letter}</text></svg>"##,
         letter = escape(&letter)
