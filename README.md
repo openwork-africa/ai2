@@ -165,6 +165,7 @@ Pass your own identity: `ai2::run_with(steps, subcommands, ai2::Build { name: "m
 
 - **Feedback**: where you note what you have learned that should be repeated and applied, and how to work on another thing or on the base development architecture.
 - **Planning skill**.
+- **A friendly localhost URL** for the ai2 UI instead of 127.0.0.1 and a port.
 - **Threat-model table**: each threat and whether it is covered, partly covered or not covered, to be discussed before it is written.
 
 ## License
