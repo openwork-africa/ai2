@@ -19,6 +19,7 @@ pub struct Headless {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ModelChoice {
     pub id: String,
     pub label: String,

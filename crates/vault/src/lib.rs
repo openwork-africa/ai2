@@ -1,7 +1,7 @@
 mod admin;
 mod approvals;
 pub mod cli;
-mod client;
+pub mod client;
 pub mod crypto;
 mod daemon;
 mod gateway;
