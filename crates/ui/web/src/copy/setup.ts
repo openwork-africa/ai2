@@ -84,3 +84,64 @@ export const prompts = {
 
 export const failureHint = "Fix that, then press Try again; setup picks up from here.";
 export const localOnly = "Everything here runs on this machine. Nothing is sent anywhere.";
+
+export const machineName = (os: string | undefined) => (os === "macos" ? "this Mac" : "this machine");
+
+export const strip = {
+  idle: (machine: string) => `Set up ${machine}`,
+  checking: (machine: string) => `Checking ${machine}`,
+  running: (machine: string) => `Setting up ${machine}`,
+  ready: "Ready",
+  stopped: "Setup stopped",
+  checked: "Checked",
+  step: (current: number, total: number) => `Step ${current} of ${total}`,
+  of: (done: number, total: number) => `${done} of ${total}`,
+};
+
+export const states = {
+  warned: "Done, with a note",
+  unsupported: "Not on this machine",
+  failed: "Failed",
+  skipped: "Skipped",
+  missing: "Not set up yet",
+  unknown: "Could not tell",
+  input: "Needs you",
+};
+
+export const stepText = {
+  showLog: "Show the log",
+  hideLog: "Hide the log",
+  noLog: "Nothing written yet.",
+  tryAgain: "Try again",
+  copyLog: "Copy the log",
+  copied: "Copied",
+};
+
+export const inputText = {
+  continue: "Continue",
+  cancel: "Cancel setup",
+  differ: "The two passphrases differ. Type the same one twice.",
+};
+
+export const doneText = {
+  setUp: (machine: string) => `${machine.charAt(0).toUpperCase()}${machine.slice(1)} is set up`,
+  checked: (machine: string) => `Checked ${machine}`,
+  allReady: "Every step is in place. Nothing was changed.",
+  needed: (count: number) => `${count} ${count === 1 ? "step needs" : "steps need"} setting up. Nothing was changed.`,
+  stopped: (title: string) => `Setup stopped at ${title}`,
+  address: "Your address",
+  bookmark: "Bookmark it; ai2 ui prints it again.",
+  open: "Open ai2",
+  setItUp: "Set it up",
+};
+
+export const idleText = {
+  title: "Nothing has run yet",
+  why: "Setup changes only what is missing, and asks here before anything needs a password.",
+  start: "Set up",
+  check: "Check only",
+};
+
+export const fullLog = "Full log";
+export const fullLogWhy = "Every line setup wrote, step by step.";
+export const disconnected = "Reconnecting to ai2";
