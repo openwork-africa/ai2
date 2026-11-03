@@ -35,7 +35,7 @@ regex.workspace = true
 tempfile.workspace = true
 
 [workspace]
-members = [".", "crates/harness", "crates/keys", "crates/setup", "crates/vault", "crates/vault-ui"]
+members = [".", "crates/apps", "crates/harness", "crates/keys", "crates/setup", "crates/vault", "crates/vault-ui"]
 
 [workspace.package]
 edition = "2021"
