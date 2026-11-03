@@ -227,7 +227,7 @@ fn execute(
     let out = cli
         .out
         .clone()
-        .unwrap_or_else(|| default_out(build, &folder));
+        .unwrap_or_else(|| default_out(build.name, &folder));
     progress("reading the folder and the environment");
     let spec = scan::scan_skipping(&folder, model.as_ref(), &mut notes, Some(&out));
     let deadline = Instant::now() + Duration::from_secs(cli.budget.saturating_mul(60));
@@ -375,15 +375,13 @@ fn make_review(
     }
 }
 
-pub fn default_out(build: Build, folder: &Path) -> PathBuf {
+pub fn default_out(name: &str, folder: &Path) -> PathBuf {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in folder.display().to_string().bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    state_dir(build.name)
-        .join("reviews")
-        .join(format!("{hash:016x}"))
+    state_dir(name).join("reviews").join(format!("{hash:016x}"))
 }
 
 pub fn write(review: &Review, out: &Path, dashboard: bool) -> Result<PathBuf> {
@@ -554,8 +552,17 @@ mod tests {
 
     #[test]
     fn the_default_out_is_outside_the_reviewed_folder() {
-        let out = default_out(Build::ai2(), Path::new("/tmp/example"));
+        let out = default_out("ai2", Path::new("/tmp/example"));
         assert!(!out.starts_with("/tmp/example"));
         assert!(out.to_string_lossy().contains("reviews"));
+    }
+
+    #[test]
+    fn a_renamed_build_resolves_under_its_own_home() {
+        std::env::set_var("ARA_HOME", "/tmp/ara-home-test");
+        let out = default_out("ara", Path::new("/tmp/example"));
+        std::env::remove_var("ARA_HOME");
+        assert!(out.starts_with("/tmp/ara-home-test/reviews"));
+        assert_ne!(out, default_out("ai2", Path::new("/tmp/example")));
     }
 }

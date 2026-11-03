@@ -229,7 +229,7 @@ mod ui {
         if named && dir.join("review.json").is_file() {
             return Ok(dir);
         }
-        let reviewed = default_out(build, &dir);
+        let reviewed = default_out(build.name, &dir);
         if reviewed.join("review.json").is_file() {
             return Ok(reviewed);
         }

@@ -2,14 +2,35 @@ use crate::cli::Options;
 use crate::client;
 use crate::daemon::{self, Config, Running};
 use crate::vet::NoVetter;
-use keys::{MasterKey, MemoryKey, MemoryPresence, Platform};
+use keys::{Caller, MasterKey, MemoryKey, Platform, Presence};
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+struct Counting(Arc<AtomicUsize>);
+
+impl Presence for Counting {
+    fn confirm(
+        &self,
+        _action: &str,
+        _caller: &Caller,
+        _passphrase: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(true)
+    }
+
+    fn kind(&self) -> &'static str {
+        keys::MEMORY
+    }
+}
 
 pub struct Daemon {
     pub dir: tempfile::TempDir,
     pub admin: PathBuf,
     running: Option<Running>,
+    prompts: Arc<AtomicUsize>,
 }
 
 impl Drop for Daemon {
@@ -32,16 +53,22 @@ impl Daemon {
         config.sockets = dir.path().join("s");
         let master = MemoryKey::default();
         master.create().unwrap();
+        let prompts = Arc::new(AtomicUsize::new(0));
         let platform = Platform {
             master: Box::new(master),
-            presence: Box::new(MemoryPresence { present: true }),
+            presence: Box::new(Counting(prompts.clone())),
         };
         let running = daemon::start(config, platform, |_| Box::new(NoVetter)).unwrap();
         Daemon {
             dir,
             admin,
             running: Some(running),
+            prompts,
         }
+    }
+
+    pub fn prompts(&self) -> usize {
+        self.prompts.load(Ordering::SeqCst)
     }
 
     pub fn options(&self) -> Options {

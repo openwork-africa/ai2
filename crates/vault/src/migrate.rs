@@ -812,32 +812,37 @@ fn store(admin: &Admin, ready: &[Found]) -> Result<(Vec<Value>, Vec<Value>, i32)
     let mut failed = Vec::new();
     let mut worst = exit::OK;
     let _held = admin.hold();
-    for pick in ready {
-        let body = json!({
-            "secret": pick.secret.as_str(),
-            "description": description(pick),
-            "approved_urls": pick.approved_urls,
-            "inject": pick.inject,
-        });
-        let (status, value) = admin.call(
-            "PUT",
-            &format!("/keys/{}", encode_percent(&pick.name)),
-            Some(body),
-            true,
-        )?;
-        let mut item = spot(pick);
-        if status == 200 {
-            item["approved_urls"] = json!(pick.approved_urls);
-            stored.push(item);
-            continue;
+    for group in ready.chunks(crate::changes::MAX_ITEMS) {
+        let body: Vec<Value> = group
+            .iter()
+            .map(|pick| {
+                json!({
+                    "name": pick.name,
+                    "secret": pick.secret.as_str(),
+                    "description": description(pick),
+                    "approved_urls": pick.approved_urls,
+                    "inject": pick.inject,
+                })
+            })
+            .collect();
+        let (status, value) = admin.call("PUT", "/keys", Some(json!(body)), true)?;
+        for pick in group {
+            let mut item = spot(pick);
+            if status == 200 {
+                item["approved_urls"] = json!(pick.approved_urls);
+                stored.push(item);
+            } else {
+                item["error"] = value["message"].clone();
+                failed.push(item);
+            }
         }
-        item["error"] = value["message"].clone();
-        failed.push(item);
-        if worst == exit::OK {
-            worst = code(status);
-        }
-        if status == 401 {
-            break;
+        if status != 200 {
+            if worst == exit::OK {
+                worst = code(status);
+            }
+            if status == 401 {
+                break;
+            }
         }
     }
     Ok((stored, failed, worst))
@@ -998,7 +1003,9 @@ mod tests {
             take: vec![take("1"), take("2=gh")],
             all: false,
         };
+        let before = daemon.prompts();
         assert_eq!(run(&admin, migrate).unwrap(), exit::OK);
+        assert_eq!(daemon.prompts() - before, 1);
         let names = daemon.key_names();
         assert_eq!(names, ["openai-api-key", "openai-api-key-2", "gh"]);
         assert_eq!(std::fs::read_to_string(&env).unwrap(), text);

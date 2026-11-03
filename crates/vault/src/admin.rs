@@ -612,8 +612,12 @@ fn add_sandboxes(asked: &Asked) -> Reply {
 #[utoipa::path(
     delete,
     path = "/sandboxes/{name}",
-    description = "Removes a sandbox; its tokens stop working; needs presence",
-    params(("name" = String, Path), ("X-Vault-Passphrase" = Option<String>, Header)),
+    description = "Removes a sandbox; its tokens stop working; needs presence unless X-Vault-Revoke carries the revoke value of a token made in the same batch as the sandbox",
+    params(
+        ("name" = String, Path),
+        ("X-Vault-Revoke" = Option<String>, Header),
+        ("X-Vault-Passphrase" = Option<String>, Header)
+    ),
     responses(
         (status = 200, body = Removed),
         (status = 401, body = Error),
@@ -623,9 +627,25 @@ fn add_sandboxes(asked: &Asked) -> Reply {
     )
 )]
 fn remove_sandbox(asked: &Asked, name: &str) -> Reply {
-    asked.one(Action::RemoveSandbox(Name {
+    let action = Action::RemoveSandbox(Name {
         name: name.to_string(),
-    }))
+    });
+    let own = asked
+        .request
+        .header("x-vault-revoke")
+        .map(crypto::hash)
+        .is_some_and(|hash| {
+            let store = asked.vault.store();
+            store.sandbox(name).is_some_and(|sandbox| sandbox.throwaway)
+                && store
+                    .tokens
+                    .iter()
+                    .any(|t| t.sandbox == name && t.revoke.as_deref() == Some(hash.as_str()))
+        });
+    if !own {
+        return asked.one(action);
+    }
+    Ok(changes::run(asked.vault, vec![action], |_| Ok(()))?.swap_remove(0))
 }
 
 #[utoipa::path(
@@ -775,6 +795,79 @@ mod tests {
                     .collect::<Vec<_>>()
             })
             .collect()
+    }
+
+    fn removal(daemon: &crate::testing::Daemon, name: &str, revoke: &str) -> u16 {
+        crate::client::call(
+            &daemon.admin,
+            "DELETE",
+            &format!("/sandboxes/{name}"),
+            None,
+            &[("X-Vault-Revoke", revoke)],
+        )
+        .unwrap()
+        .0
+    }
+
+    #[test]
+    fn a_sandbox_made_with_a_token_goes_with_the_tokens_revoke_value_and_no_other_does() {
+        let daemon = crate::testing::Daemon::start();
+        daemon.put("svc");
+        let token = |sandbox: &str| {
+            json!({
+                "action": "create_token", "keys": ["svc"], "sandbox": sandbox,
+                "mode": "app"
+            })
+        };
+        let (status, value) = daemon.call(
+            "POST",
+            "/batch",
+            Some(json!({ "actions": [
+                { "action": "add_sandbox", "name": "fresh" },
+                token("fresh")
+            ] })),
+        );
+        assert_eq!(status, 200);
+        let fresh_revoke = value["results"][1]["revoke"].as_str().unwrap().to_string();
+        assert_eq!(
+            daemon
+                .call("POST", "/sandboxes", Some(json!({ "name": "plain" })))
+                .0,
+            200
+        );
+        let (_, plain) = daemon.call("POST", "/tokens", Some(token("plain")));
+        let plain_revoke = plain["revoke"].as_str().unwrap().to_string();
+        let before = daemon.prompts();
+        assert_eq!(removal(&daemon, "plain", &plain_revoke), 200);
+        assert_eq!(daemon.prompts() - before, 1);
+        let (_, other) = daemon.call(
+            "POST",
+            "/batch",
+            Some(json!({ "actions": [
+            { "action": "add_sandbox", "name": "other" },
+            token("other")
+        ] })),
+        );
+        let other_revoke = other["results"][1]["revoke"].as_str().unwrap().to_string();
+        let before = daemon.prompts();
+        assert_eq!(removal(&daemon, "fresh", &other_revoke), 200);
+        assert_eq!(daemon.prompts() - before, 1);
+        assert_eq!(daemon.names("/sandboxes", "sandboxes", "name"), ["other"]);
+        let (_, again) = daemon.call(
+            "POST",
+            "/batch",
+            Some(json!({ "actions": [
+            { "action": "add_sandbox", "name": "fresh" },
+            token("fresh")
+        ] })),
+        );
+        let again_revoke = again["results"][1]["revoke"].as_str().unwrap().to_string();
+        let before = daemon.prompts();
+        assert_eq!(removal(&daemon, "fresh", &again_revoke), 200);
+        assert_eq!(removal(&daemon, "other", &other_revoke), 200);
+        assert_eq!(daemon.prompts(), before);
+        assert!(daemon.names("/sandboxes", "sandboxes", "name").is_empty());
+        assert_eq!(fresh_revoke.len(), again_revoke.len());
     }
 
     #[test]
