@@ -45,7 +45,7 @@ It builds ai2 and runs `ai2 setup --headless` against a throwaway home, never th
 
 - `AI2_HOME` is a temp folder under `/tmp` (the sandbox socket path must stay under 104 bytes);
 - `AI2_VAULT_KEYCHAIN` points at a test keychain file it creates and deletes;
-- `AI2_VAULT_LABEL` gives the vault LaunchAgent a test label, booted out at the end.
+- `AI2_VAULT_LABEL` and `AI2_UI_LABEL` give the vault and dashboard LaunchAgents test labels, booted out at the end, and `AI2_UI_PORT=47797` keeps the test dashboard off 7797.
 
 Expect **four Touch ID prompts**, each named before it shows: store a key, add a sandbox, make a token, and `vault with`. It checks a real call through the gateway, a denied call outside the approved URLs, a container calling the gateway socket (`debian:trixie-slim`, the socket mounted as a file with `--volume <sock>:/run/ai2-vault.sock`), and the UI's nonce checks. Cleanup runs on exit or Ctrl-C and leaves no keychain item, LaunchAgent, temp folder or container behind.
 
