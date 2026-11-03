@@ -11,7 +11,7 @@ export const CHAPTERS: Chapter[] = [
   {
     id: "secure",
     title: "ai squared treats every agent as if it might be compromised.",
-    body: "Every run is audited against exploits published in the last few days, and a reviewer reads every file it changed. Each call is held against the job you gave the run, and anything that writes waits for your yes. A tricked agent holds a token, never a key, so it has nothing to leak.",
+    body: "Every run is reviewed against exploits published in the last few days, and a reviewer reads every file it changed. Each call is held against the job you gave the run, and anything that writes waits for your yes. A tricked agent holds a token, never a key, so it has nothing to leak.",
     image: "/welcome/secure.webp",
     alt: "A vault door set in a shield, with a key beside it.",
   },
