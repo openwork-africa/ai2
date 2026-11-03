@@ -5,7 +5,7 @@ export const CHAPTERS: Chapter[] = [
     id: "monitor",
     label: "Monitor",
     title: "Every app you make, in one place.",
-    body: "ai² keeps the apps you and your agents build on this machine together. Running or stopped, each one is here with its logs and its API.",
+    body: "ai squared keeps the apps you and your agents build on this machine together. Running or stopped, each one is here with its logs and its API.",
     image: "/welcome/monitor.webp",
     alt: "A telescope on a hill watching a constellation of app windows, one of them green.",
   },
@@ -28,7 +28,7 @@ export const CHAPTERS: Chapter[] = [
 ];
 
 export const welcome = {
-  name: "ai²",
+  name: "ai squared",
   tagline: "Built to monitor, secure and consume your own apps.",
   next: "Next",
   setUp: "Set up",
