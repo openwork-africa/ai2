@@ -549,3 +549,15 @@ fn the_page_starts_setup_answers_over_post_and_resumes_with_last_event_id() {
         assert!(body.contains(&format!("\"{path}\"")), "{path}");
     }
 }
+
+#[test]
+fn setup_opens_the_welcome_story_and_a_check_opens_setup() {
+    assert_eq!(
+        crate::server::address(7790, "abc", Some(first_page(false))),
+        "http://127.0.0.1:7790/welcome?nonce=abc"
+    );
+    assert_eq!(
+        crate::server::address(7790, "abc", Some(first_page(true))),
+        "http://127.0.0.1:7790/setup?nonce=abc"
+    );
+}
