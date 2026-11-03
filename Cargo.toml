@@ -16,15 +16,17 @@ name = "ai2"
 path = "src/main.rs"
 
 [features]
-default = ["harness", "vault", "setup", "apps", "ui", "mcp"]
+default = ["harness", "vault", "setup", "apps", "agents", "ui", "mcp"]
 harness = ["dep:harness", "mcp?/harness"]
 vault = ["dep:vault", "dep:keys", "mcp?/vault"]
 setup = ["dep:setup", "vault", "mcp?/setup"]
 apps = ["dep:apps", "mcp?/apps"]
-ui = ["dep:ui", "vault", "setup", "apps"]
+agents = ["dep:agents", "harness", "mcp?/agents"]
+ui = ["dep:ui", "vault", "setup", "apps", "agents"]
 mcp = ["dep:mcp", "ui?/mcp"]
 
 [dependencies]
+agents = { path = "crates/agents", optional = true }
 anyhow = "1"
 apps = { path = "crates/apps", optional = true }
 harness = { path = "crates/harness", version = "0.1.0", optional = true }
@@ -45,7 +47,7 @@ tempfile.workspace = true
 
 [workspace]
 resolver = "3"
-members = [".", "crates/apps", "crates/harness", "crates/keys", "crates/mcp", "crates/setup", "crates/ui", "crates/vault"]
+members = [".", "crates/agents", "crates/apps", "crates/harness", "crates/keys", "crates/mcp", "crates/setup", "crates/ui", "crates/vault"]
 
 [workspace.package]
 rust-version = "1.88"

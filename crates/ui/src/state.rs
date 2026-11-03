@@ -11,6 +11,7 @@ pub struct State {
     pub home: PathBuf,
     pub admin: PathBuf,
     pub apps: apps::Supervisor,
+    pub agents: agents::Agents,
 }
 
 impl State {
@@ -24,6 +25,7 @@ impl State {
             home: options.home.clone(),
             admin: options.admin.clone(),
             apps: apps::Supervisor::new(apps::Store::at_home(&options.home)?),
+            agents: options.agents.clone(),
         })
     }
 }

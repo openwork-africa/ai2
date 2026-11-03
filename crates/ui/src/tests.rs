@@ -106,15 +106,19 @@ pub(crate) struct Ui {
 
 impl Ui {
     fn start(home: &Path, admin: &Path) -> Self {
+        Self::start_with(Options {
+            home: home.to_path_buf(),
+            admin: admin.to_path_buf(),
+            agents: ::agents::Agents::local(home, ::harness::Registry::public),
+        })
+    }
+
+    pub(crate) fn start_with(options: Options) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
             .unwrap();
-        let options = Options {
-            home: home.to_path_buf(),
-            admin: admin.to_path_buf(),
-        };
         let server = runtime.block_on(Server::bind(0, &options)).unwrap();
         let state = server.state();
         runtime.spawn(server.serve());

@@ -1,3 +1,5 @@
+#[cfg(feature = "agents")]
+pub mod agents;
 #[cfg(feature = "apps")]
 pub mod apps;
 pub mod cli;
@@ -21,6 +23,8 @@ pub mod ui;
 #[cfg(feature = "vault")]
 pub mod vault;
 
+#[cfg(feature = "agents")]
+pub use agents::{AgentsSubcommand, RunSubcommand};
 #[cfg(feature = "apps")]
 pub use apps::AppsSubcommand;
 pub use cli::{builtin, run, run_with, Build, Subcommand};
@@ -50,6 +54,14 @@ pub fn subcommands(build: Build) -> Vec<Box<dyn Subcommand>> {
         Box::new(SetupSubcommand { name: build.name }),
         #[cfg(feature = "apps")]
         Box::new(AppsSubcommand { name: build.name }),
+        #[cfg(feature = "agents")]
+        Box::new(AgentsSubcommand {
+            agents: crate::agents::local(build),
+        }),
+        #[cfg(feature = "agents")]
+        Box::new(RunSubcommand {
+            agents: crate::agents::local(build),
+        }),
         #[cfg(feature = "ui")]
         Box::new(UiSubcommand { build }),
         #[cfg(feature = "mcp")]
@@ -71,6 +83,8 @@ mod tests {
             ("vault", cfg!(feature = "vault")),
             ("setup", cfg!(feature = "setup")),
             ("apps", cfg!(feature = "apps")),
+            ("agents", cfg!(feature = "agents")),
+            ("run", cfg!(feature = "agents")),
             ("ui", cfg!(feature = "ui")),
             ("mcp", cfg!(feature = "mcp")),
         ];
@@ -88,11 +102,15 @@ mod tests {
         if cfg!(feature = "setup") {
             assert!(cfg!(feature = "vault"));
         }
+        if cfg!(feature = "agents") {
+            assert!(cfg!(feature = "harness"));
+        }
         if cfg!(feature = "ui") {
             assert!(cfg!(all(
                 feature = "vault",
                 feature = "setup",
-                feature = "apps"
+                feature = "apps",
+                feature = "agents"
             )));
         }
     }

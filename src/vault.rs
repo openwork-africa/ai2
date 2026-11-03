@@ -115,6 +115,7 @@ mod ui {
         let ui = ::ui::Options {
             home: crate::cli::state_dir(build.name),
             admin: options.admin.clone(),
+            agents: crate::agents::local(build),
         };
         ::ui::serve_page(crate::ui::port(), &ui, Some(&page), true, extra).map(exit_code)
     }

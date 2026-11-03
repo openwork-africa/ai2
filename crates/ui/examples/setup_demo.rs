@@ -242,6 +242,7 @@ fn main() -> Result<()> {
     let home = std::env::temp_dir().join(format!("ai2-setup-demo-{}", std::process::id()));
     let options = ui::Options {
         admin: PathBuf::from(&home).join("admin.sock"),
+        agents: agents::Agents::local(&home, harness::Registry::public),
         home,
     };
     let sudo = name == "sudo";

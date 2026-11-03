@@ -401,6 +401,7 @@ impl Server {
         let options = Options {
             home: dir.path().to_path_buf(),
             admin: PathBuf::from(dir.path()).join("admin.sock"),
+            agents: ::agents::Agents::local(dir.path(), ::harness::Registry::public),
         };
         let server = runtime.block_on(crate::Server::bind(0, &options)).unwrap();
         let state = server.state();

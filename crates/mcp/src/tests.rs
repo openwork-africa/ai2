@@ -68,6 +68,17 @@ fn shared() -> BTreeMap<&'static str, Schemas> {
     }
     #[cfg(feature = "setup")]
     all.insert("setup_check", bare::<crate::setup::SetupReport>());
+    #[cfg(feature = "agents")]
+    {
+        use crate::agents::*;
+        all.extend([
+            ("agents_list", bare::<AgentList>()),
+            ("agents_create", takes::<NewAgent, AgentFound>()),
+            ("agent_run", takes::<RunAsk, Finished>()),
+            ("runs_list", bare::<RunList>()),
+            ("runs_get", takes::<RunId, RunFound>()),
+        ]);
+    }
     #[cfg(feature = "apps")]
     {
         use crate::apps::*;
@@ -164,6 +175,9 @@ impl Fixture {
             setup: Arc::new(FakeSetup),
             #[cfg(feature = "apps")]
             apps: Arc::new(crate::apps::Local::detached(&home).unwrap()),
+            #[cfg(feature = "agents")]
+            agents: ::agents::Agents::local(&home, fake_agents(&home))
+                .with_review(Arc::new(FakeReview)),
         }
     }
 
@@ -179,6 +193,55 @@ impl Fixture {
             let _ = crate::serve(server, read, write).await;
         });
         ().serve(ours).await.unwrap()
+    }
+}
+
+#[cfg(feature = "agents")]
+fn fake_agents(home: &Path) -> impl Fn() -> ::harness::Registry + Send + Sync + 'static {
+    let script = home.join("fake-agent");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho \"working on: $1\"\necho \"$1\" > edited.txt\nexit 3\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let command = script.display().to_string();
+    move || {
+        let mut registry = ::harness::Registry::default();
+        registry.put(
+            ::harness::Setup {
+                id: "fake".into(),
+                label: "Fake".into(),
+                command: command.clone(),
+                install: "true".into(),
+                agent: Some(::harness::Agent::default()),
+                ..::harness::Setup::default()
+            },
+            None,
+        );
+        registry
+    }
+}
+
+#[cfg(feature = "agents")]
+struct FakeReview;
+
+#[cfg(feature = "agents")]
+impl ::agents::Review for FakeReview {
+    fn review(
+        &self,
+        folder: &Path,
+        objective: &str,
+        say: &mut dyn FnMut(String),
+    ) -> anyhow::Result<::agents::Reviewed> {
+        say("ai2: rating the Run Risk Factor".into());
+        Ok(::agents::Reviewed {
+            hash: "fedcba9876543210".into(),
+            review: json!({
+                "objective": objective,
+                "edited": folder.join("edited.txt").is_file()
+            }),
+        })
     }
 }
 
@@ -257,8 +320,12 @@ fn the_tool_list_is_one_router_per_piece_named_after_its_crate() {
     assert_eq!(names, expected);
     let mut pieces: Vec<&str> = names
         .iter()
-        .map(|name| name.split('_').next().unwrap())
+        .map(|name| match name.split('_').next().unwrap() {
+            "agent" | "runs" => "agents",
+            piece => piece,
+        })
         .collect();
+    pieces.sort();
     pieces.dedup();
     let mut features = crate::features();
     features.sort();
@@ -663,5 +730,76 @@ async fn apps_tools_register_list_and_show_from_the_apps_store() {
     assert_eq!(logs["lines"], json!([]));
     let missing = failure(&call(&client, "apps_status", json!({ "id": "nope" })).await);
     assert_eq!(missing["error"], "not_found");
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "agents")]
+#[tokio::test]
+async fn an_agent_is_kept_run_in_a_folder_and_its_run_is_read_back_with_its_review() {
+    let fixture = Fixture::new();
+    let folder = tempfile::tempdir().unwrap();
+    let real = folder.path().canonicalize().unwrap();
+    let client = fixture.client().await;
+    let made = structured(
+        &call(
+            &client,
+            "agents_create",
+            json!({ "name": "scout", "harness": "fake", "folder": folder.path() }),
+        )
+        .await,
+    );
+    assert_eq!(made["agent"]["folder"], real.display().to_string());
+    let listed = structured(&call(&client, "agents_list", json!({})).await);
+    assert_eq!(listed["agents"][0]["name"], "scout");
+    let refused = failure(
+        &call(
+            &client,
+            "agents_create",
+            json!({ "name": "scout", "harness": "nope" }),
+        )
+        .await,
+    );
+    assert_eq!(refused["error"], "unknown_harness");
+
+    let finished = structured(
+        &call(
+            &client,
+            "agent_run",
+            json!({ "agent": "scout", "prompt": "fix the login" }),
+        )
+        .await,
+    );
+    let run = &finished["run"];
+    assert_eq!(run["agent"], "scout");
+    assert_eq!(run["exit"], 3);
+    assert_eq!(run["state"], "ended");
+    assert_eq!(run["review"], "fedcba9876543210");
+    assert_eq!(
+        finished["review"],
+        json!({ "objective": "fix the login", "edited": true })
+    );
+    assert_eq!(
+        std::fs::read_to_string(real.join("edited.txt")).unwrap(),
+        "fix the login\n"
+    );
+    let log = std::fs::read_to_string(run["log"].as_str().unwrap()).unwrap();
+    assert_eq!(log, "working on: fix the login\n");
+
+    let runs = structured(&call(&client, "runs_list", json!({})).await);
+    assert_eq!(runs["runs"].as_array().unwrap().len(), 1);
+    let id = run["id"].as_str().unwrap();
+    let found = structured(&call(&client, "runs_get", json!({ "id": id })).await);
+    assert_eq!(&found["run"], run);
+    let unknown = failure(&call(&client, "runs_get", json!({ "id": "../x" })).await);
+    assert_eq!(unknown["error"], "not_found");
+    let missing = failure(
+        &call(
+            &client,
+            "agent_run",
+            json!({ "harness": "fake", "folder": real.join("nope"), "prompt": "hi" }),
+        )
+        .await,
+    );
+    assert_eq!(missing["error"], "not_a_folder");
     client.cancel().await.unwrap();
 }

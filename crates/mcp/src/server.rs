@@ -17,14 +17,21 @@ pub struct Pieces {
     pub setup: Arc<dyn crate::setup::Setup>,
     #[cfg(feature = "apps")]
     pub apps: Arc<dyn crate::apps::Apps>,
+    #[cfg(feature = "agents")]
+    pub agents: ::agents::Agents,
 }
 
 impl Pieces {
     pub fn local(name: &'static str, version: &'static str, bin: PathBuf, home: PathBuf) -> Self {
+        let reviews: Arc<dyn crate::reviews::Reviews> =
+            Arc::new(crate::reviews::Child::new(bin.clone(), home.clone()));
         Self {
             name,
             version,
-            reviews: Arc::new(crate::reviews::Child::new(bin.clone(), home.clone())),
+            #[cfg(feature = "agents")]
+            agents: ::agents::Agents::local(&home, ::harness::Registry::public)
+                .with_review(Arc::new(crate::agents::Reviewing(reviews.clone()))),
+            reviews,
             #[cfg(feature = "harness")]
             harness: Arc::new(crate::harness::local(
                 ::harness::Registry::public,
@@ -63,6 +70,8 @@ pub fn tools() -> ToolRouter<Server> {
         Server::setup_tools(),
         #[cfg(feature = "apps")]
         Server::apps_tools(),
+        #[cfg(feature = "agents")]
+        Server::agents_tools(),
     ]
     .into_iter()
     .fold(ToolRouter::new(), |tools, piece| tools + piece)
@@ -79,6 +88,8 @@ fn instructions(name: &str) -> String {
         format!("setup_check reports whether this machine is set up for the vault; {name} setup changes it."),
         #[cfg(feature = "apps")]
         "apps_* register, list, start and stop the local apps; every app has an OpenAPI document, which apps_list returns with include_openapi.".to_string(),
+        #[cfg(feature = "agents")]
+        "agents_* keep agents (a harness, a model and a personality by name); agent_run runs one on a prompt in a folder and reviews the folder after; runs_* read the run records.".to_string(),
     ]
     .join(" ")
 }
