@@ -387,6 +387,10 @@ pub fn wait(child: &mut Child, label: &str, limit: Duration) -> Result<std::proc
     }
 }
 
+fn on_path(name: &str) -> bool {
+    harness::state::on_path(name, &std::env::var("PATH").unwrap_or_default())
+}
+
 fn muse_signed_in() -> bool {
     run(
         Command::new("muse")
@@ -398,11 +402,6 @@ fn muse_signed_in() -> bool {
     )
     .map(|s| s.success())
     .unwrap_or(false)
-}
-
-pub fn on_path(name: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
 }
 
 fn scratch() -> Result<tempfile::TempDir> {
