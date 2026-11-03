@@ -3004,12 +3004,14 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "futures-util",
+ "harness",
  "include_dir",
  "mime_guess",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tower",
  "tower-http",
  "utoipa",
  "utoipa-axum",
@@ -3185,6 +3187,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "ureq",
+ "utoipa",
  "zeroize",
 ]
 

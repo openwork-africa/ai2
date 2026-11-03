@@ -1,0 +1,51 @@
+{
+  "version": "0.1.2",
+  "folder": "/Users/rawk/Documents/openwork/llm-game-harness",
+  "objective": "",
+  "generated_at": "2026-11-02T08:15:40Z",
+  "harness": null,
+  "ratings": [
+    {
+      "key": "msr",
+      "name": "Modern Security Rating",
+      "short": "MSR",
+      "riskier": false,
+      "rating": {
+        "name": "Modern Security Rating",
+        "short": "MSR",
+        "score": 64,
+        "factors": [
+          { "name": "Unexposed", "score": 58, "why": "The game server listens on 0.0.0.0:3000 and serves the save files." },
+          { "name": "Low severity", "score": 61, "why": "A high advisory in the websocket library." },
+          { "name": "Patched", "score": 73, "why": "ws is two minor versions behind its fix." }
+        ]
+      }
+    },
+    {
+      "key": "rrf",
+      "name": "Run Risk Factor",
+      "short": "RRF",
+      "riskier": true,
+      "rating": null,
+      "missing": "Needs a coding harness: Muse Code (logged in) or pi."
+    }
+  ],
+  "technologies": [
+    { "name": "ws", "kind": "library", "risk": 61 },
+    { "name": "Node.js", "kind": "runtime", "risk": 22 },
+    { "name": "express", "kind": "library", "risk": 17 }
+  ],
+  "exploits": [
+    { "id": "CVE-2026-39811", "technology": "ws", "severity": "high", "summary": "A client can make the server allocate unbounded memory with fragmented frames.", "fixed_in": "8.19.0" }
+  ],
+  "findings": [],
+  "spec": {
+    "os": "macOS 26.1 arm64",
+    "languages": [ { "name": "TypeScript", "lines": 9120, "share": 1.0 } ],
+    "libraries": [ { "name": "ws", "version": "8.17.1", "ecosystem": "npm" }, { "name": "express", "version": "5.1.0", "ecosystem": "npm" } ]
+  },
+  "notes": [
+    "No providers file: the steps that ask a model were left out.",
+    "Run Risk Factor could not be rated: no coding harness is signed in."
+  ]
+}

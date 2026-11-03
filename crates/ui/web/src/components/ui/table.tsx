@@ -65,7 +65,7 @@ function TableRow({
   return (
     <wire.tr
       data-slot="table-row"
-      className={cn("cn-table-row border-b transition-colors hover:bg-fill-default data-[state=selected]:bg-fill-hover [&:has([aria-expanded="true"])]:bg-fill-default", className)}
+      className={cn("cn-table-row border-b transition-colors hover:bg-fill-default data-[state=selected]:bg-fill-hover [&:has([aria-expanded='true'])]:bg-fill-default", className)}
       {...props}
     />
   );
