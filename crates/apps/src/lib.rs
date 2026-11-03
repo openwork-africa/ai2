@@ -23,6 +23,7 @@ pub use model::{
 };
 pub use store::{href, slug, Running, Store, LOG_LIMIT};
 pub use supervisor::{listening, Settings, Supervisor};
+pub use ui::Ui;
 
 impl NewApp {
     pub fn parse(value: serde_json::Value) -> Result<NewApp> {

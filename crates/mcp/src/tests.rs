@@ -163,7 +163,7 @@ impl Fixture {
             #[cfg(feature = "setup")]
             setup: Arc::new(FakeSetup),
             #[cfg(feature = "apps")]
-            apps: Arc::new(crate::apps::Unavailable),
+            apps: Arc::new(crate::apps::Local::detached(&home).unwrap()),
         }
     }
 
@@ -616,19 +616,52 @@ async fn a_review_runs_as_a_child_and_is_read_back_by_hash_or_folder() {
 
 #[cfg(feature = "apps")]
 #[tokio::test]
-async fn apps_tools_need_an_openapi_document_and_say_when_the_store_is_missing() {
+async fn apps_tools_register_list_and_show_from_the_apps_store() {
+    use base64::Engine as _;
     let fixture = Fixture::new();
     let client = fixture.client().await;
     let refused = failure(
         &call(
             &client,
             "apps_register",
-            json!({ "name": "Workspot", "command": "deno task start", "openapi": " " }),
+            json!({ "name": "Workspot", "description": "Desks", "command": "deno task start", "openapi": " " }),
         )
         .await,
     );
     assert_eq!(refused["error"], "openapi_required");
-    let missing = failure(&call(&client, "apps_list", json!({ "include_openapi": true })).await);
-    assert_eq!(missing["error"], "apps_unavailable");
+    let empty = structured(&call(&client, "apps_list", json!({ "include_openapi": true })).await);
+    assert_eq!(empty["apps"], json!([]));
+    let icon = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let registered = structured(
+        &call(
+            &client,
+            "apps_register",
+            json!({
+                "name": "Workspot",
+                "description": "Desks",
+                "command": "deno task start",
+                "openapi": "/openapi.json",
+                "port": 1,
+                "cwd": fixture.home.path(),
+                "icon": { "type": "image/png", "base64": icon }
+            }),
+        )
+        .await,
+    );
+    assert_eq!(registered["app"]["id"], "workspot");
+    assert_eq!(registered["app"]["running"], false);
+    assert_eq!(registered["app"]["api"]["state"], "unchecked");
+    assert!(registered["warning"]
+        .as_str()
+        .unwrap()
+        .contains("not running yet"));
+    let listed = structured(&call(&client, "apps_list", json!({})).await);
+    assert_eq!(listed["apps"][0]["name"], "Workspot");
+    let status = structured(&call(&client, "apps_status", json!({ "id": "workspot" })).await);
+    assert_eq!(status["app"]["port"], 1);
+    let logs = structured(&call(&client, "apps_logs", json!({ "id": "workspot" })).await);
+    assert_eq!(logs["lines"], json!([]));
+    let missing = failure(&call(&client, "apps_status", json!({ "id": "nope" })).await);
+    assert_eq!(missing["error"], "not_found");
     client.cancel().await.unwrap();
 }

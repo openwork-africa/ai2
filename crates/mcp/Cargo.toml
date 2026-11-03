@@ -27,5 +27,6 @@ vault = { path = "../vault", optional = true }
 zeroize.workspace = true
 
 [dev-dependencies]
+base64 = "0.22"
 rmcp = { version = "3.8", features = ["client"] }
 tempfile.workspace = true

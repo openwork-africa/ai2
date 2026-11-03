@@ -573,3 +573,48 @@ fn the_command_reads_its_port_and_prints_the_address() {
         "http://127.0.0.1:7790/?nonce=abc"
     );
 }
+
+#[cfg(feature = "mcp")]
+#[test]
+fn mcp_is_served_under_the_nonce_with_its_openapi_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let ui = ui_without_daemon(dir.path());
+    assert_eq!(ui.get("/mcp/openapi.json").status, 403);
+    let document = ui.api("GET", "/mcp/openapi.json", &[], "");
+    assert_eq!(document.status, 200);
+    let document = document.json();
+    assert_eq!(
+        document["servers"][0]["url"],
+        format!("http://{}/mcp", ui.host)
+    );
+    assert!(document["paths"]["/tools/apps_list"].is_object());
+    let refused = ui.send(
+        "POST",
+        "/mcp",
+        &[("Host", &ui.host), ("Content-Type", "application/json")],
+        b"{}",
+    );
+    assert_eq!(refused.status, 403);
+    let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}"#;
+    let answered = ui.api(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json, text/event-stream"),
+        ],
+        initialize,
+    );
+    assert_eq!(answered.status, 200, "{}", answered.text());
+    let text = answered.text();
+    let reply: serde_json::Value = text
+        .lines()
+        .find_map(|line| serde_json::from_str(line.trim_start_matches("data:").trim()).ok())
+        .unwrap_or_else(|| panic!("no JSON-RPC reply in {text}"));
+    assert_eq!(reply["result"]["serverInfo"]["name"], "ai2");
+    let status = ui.api("GET", "/api/status", &[], "").json();
+    assert!(status["features"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("mcp")));
+}

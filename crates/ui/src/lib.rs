@@ -2,6 +2,8 @@ mod admin;
 mod apps;
 mod bundle;
 mod harnesses;
+#[cfg(feature = "mcp")]
+mod mcp;
 mod nonce;
 mod reply;
 pub mod reviews;

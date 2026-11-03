@@ -1509,6 +1509,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "apps",
+ "base64 0.22.1",
  "clap",
  "harness",
  "rmcp",

@@ -33,7 +33,10 @@ pub fn router(state: Shared) -> (Router, OpenApi) {
     let served = document.clone();
     let router = Router::new()
         .merge(api)
-        .route("/openapi.json", get(move || async move { Json(served) }))
+        .route("/openapi.json", get(move || async move { Json(served) }));
+    #[cfg(feature = "mcp")]
+    let router = crate::mcp::mount(router, &state);
+    let router = router
         .fallback(bundle::serve)
         .layer(DefaultBodyLimit::max(security::BODY_LIMIT))
         .layer(RequestBodyLimitLayer::new(security::BODY_LIMIT))

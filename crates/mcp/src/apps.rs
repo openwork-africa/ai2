@@ -1,11 +1,12 @@
 use crate::{Failure, Server};
+pub use ::apps::{LogLine, NewApp, Shown};
+use ::apps::{Problem, Settings, Store, Supervisor, Ui};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router, Json};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::BTreeMap;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 pub type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, Failure>> + Send + 'a>>;
@@ -19,140 +20,156 @@ pub trait Apps: Send + Sync {
     fn logs<'a>(&'a self, id: &'a str, tail: usize) -> Answer<'a, Vec<LogLine>>;
 }
 
-pub struct Unavailable;
+impl From<Problem> for Failure {
+    fn from(problem: Problem) -> Self {
+        Failure::new(&problem.error, problem.message)
+    }
+}
 
-fn unavailable<'a, T: Send + 'a>() -> Answer<'a, T> {
-    Box::pin(async {
-        Err(Failure::new(
-            "apps_unavailable",
-            "this build has no apps store yet",
-        ))
-    })
+pub struct Unavailable(pub Failure);
+
+impl Unavailable {
+    fn answer<'a, T: Send + 'a>(&self) -> Answer<'a, T> {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure) })
+    }
 }
 
 impl Apps for Unavailable {
     fn register(&self, _app: NewApp) -> Answer<'_, Registered> {
-        unavailable()
+        self.answer()
     }
     fn list(&self, _include_openapi: bool) -> Answer<'_, Vec<Shown>> {
-        unavailable()
+        self.answer()
     }
     fn start<'a>(&'a self, _id: &'a str) -> Answer<'a, Shown> {
-        unavailable()
+        self.answer()
     }
     fn stop<'a>(&'a self, _id: &'a str) -> Answer<'a, Shown> {
-        unavailable()
+        self.answer()
     }
     fn status<'a>(&'a self, _id: &'a str) -> Answer<'a, Shown> {
-        unavailable()
+        self.answer()
     }
     fn logs<'a>(&'a self, _id: &'a str, _tail: usize) -> Answer<'a, Vec<LogLine>> {
-        unavailable()
+        self.answer()
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-pub enum Restart {
-    #[default]
-    Never,
-    OnFailure,
-    Always,
+pub struct Local {
+    supervisor: Supervisor,
+    ui: Option<(PathBuf, u16)>,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
-pub struct Icon {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base64: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bytes: Option<u64>,
+impl Local {
+    pub fn in_process(supervisor: Supervisor) -> Self {
+        Self {
+            supervisor,
+            ui: None,
+        }
+    }
+
+    pub fn detached(home: &Path) -> Result<Self, Failure> {
+        let options = ::apps::Options::new(home.to_path_buf());
+        Ok(Self {
+            supervisor: Supervisor::with(Store::at_home(home)?, Settings::detached()),
+            ui: Some((options.home, options.ui_port)),
+        })
+    }
+
+    pub fn supervisor(&self) -> &Supervisor {
+        &self.supervisor
+    }
+
+    async fn ui(&self) -> Option<Ui> {
+        let (home, port) = self.ui.clone()?;
+        tokio::task::spawn_blocking(move || Ui::find(&home, port))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn through_ui(&self, id: &str, action: &str) -> Option<Result<Shown, Failure>> {
+        let ui = self.ui().await?;
+        let path = format!("/api/apps/{id}/{action}");
+        let answer = tokio::task::spawn_blocking(move || ui.call("POST", &path))
+            .await
+            .map_err(|error| Failure::new("internal", error.to_string()))
+            .and_then(|answer| answer.map_err(Failure::from))
+            .and_then(|reply| {
+                serde_json::from_value::<Shown>(reply["app"].clone())
+                    .map_err(|error| Failure::new("ui_error", error.to_string()))
+            });
+        Some(answer)
+    }
+
+    async fn registered(&self, app: NewApp) -> Result<Registered, Failure> {
+        if self.ui.is_none() && app.icon.as_ref().is_some_and(|icon| icon.path.is_some()) {
+            return Err(Failure::new(
+                "icon_path",
+                "Send the icon as base64; ai2 ui does not read files from disk for a request.",
+            ));
+        }
+        let store = self.supervisor.store().clone();
+        let (app, _) = tokio::task::spawn_blocking(move || store.register(app))
+            .await
+            .map_err(|error| Failure::new("internal", error.to_string()))??;
+        let warning = if ::apps::listening(app.port).await {
+            self.supervisor.check(&app.id).await?;
+            None
+        } else {
+            Some(format!(
+                "{} is not running yet, so its OpenAPI document was not checked; it is checked once the app runs (apps_start {}).",
+                app.name, app.id
+            ))
+        };
+        Ok(Registered {
+            app: self.supervisor.show(&app.id).await?,
+            warning,
+        })
+    }
+
+    async fn started(&self, id: &str) -> Result<Shown, Failure> {
+        if let Some(answer) = self.through_ui(id, "start").await {
+            return answer;
+        }
+        self.supervisor.adopt().await?;
+        Ok(self.supervisor.start(id).await?)
+    }
+
+    async fn stopped(&self, id: &str) -> Result<Shown, Failure> {
+        if let Some(answer) = self.through_ui(id, "stop").await {
+            return answer;
+        }
+        self.supervisor.adopt().await?;
+        Ok(self.supervisor.stop(id).await?)
+    }
+
+    async fn shown(&self, id: &str) -> Result<Shown, Failure> {
+        self.supervisor.adopt().await?;
+        Ok(self.supervisor.show(id).await?)
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
-pub struct NewApp {
-    pub name: String,
-    pub command: String,
-    pub openapi: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub port: Option<u16>,
-    #[serde(default)]
-    pub url: Option<String>,
-    #[serde(default)]
-    pub env: BTreeMap<String, String>,
-    #[serde(default)]
-    pub set_port: Option<bool>,
-    #[serde(default)]
-    pub restart: Option<Restart>,
-    #[serde(default)]
-    pub icon: Option<Icon>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
-pub struct App {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    pub command: String,
-    pub cwd: String,
-    pub port: u16,
-    pub url: String,
-    #[serde(default)]
-    pub env: BTreeMap<String, String>,
-    pub set_port: bool,
-    pub restart: Restart,
-    pub icon: Option<Icon>,
-    pub openapi: String,
-    pub added: String,
-    pub updated: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum ApiState {
-    Unchecked,
-    Valid,
-    Unreachable,
-    Invalid,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
-pub struct Api {
-    pub openapi: String,
-    pub href: String,
-    pub state: ApiState,
-    pub checked: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operations: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
-pub struct Shown {
-    #[serde(flatten)]
-    pub app: App,
-    pub running: bool,
-    pub started_here: bool,
-    pub pid: Option<u32>,
-    pub since: Option<String>,
-    #[serde(default)]
-    pub restarts: u32,
-    pub api: Api,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub document: Option<Value>,
+impl Apps for Local {
+    fn register(&self, app: NewApp) -> Answer<'_, Registered> {
+        Box::pin(self.registered(app))
+    }
+    fn list(&self, include_openapi: bool) -> Answer<'_, Vec<Shown>> {
+        Box::pin(async move { Ok(self.supervisor.list(include_openapi).await?) })
+    }
+    fn start<'a>(&'a self, id: &'a str) -> Answer<'a, Shown> {
+        Box::pin(self.started(id))
+    }
+    fn stop<'a>(&'a self, id: &'a str) -> Answer<'a, Shown> {
+        Box::pin(self.stopped(id))
+    }
+    fn status<'a>(&'a self, id: &'a str) -> Answer<'a, Shown> {
+        Box::pin(self.shown(id))
+    }
+    fn logs<'a>(&'a self, id: &'a str, tail: usize) -> Answer<'a, Vec<LogLine>> {
+        Box::pin(async move { Ok(self.supervisor.logs(id, tail)?) })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
@@ -160,13 +177,6 @@ pub struct Registered {
     pub app: Shown,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
-pub struct LogLine {
-    pub t: String,
-    pub stream: String,
-    pub line: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]

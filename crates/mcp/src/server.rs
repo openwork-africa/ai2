@@ -38,7 +38,10 @@ impl Pieces {
                 home.clone(),
             ))),
             #[cfg(feature = "apps")]
-            apps: Arc::new(crate::apps::Unavailable),
+            apps: match crate::apps::Local::detached(&home) {
+                Ok(local) => Arc::new(local),
+                Err(failure) => Arc::new(crate::apps::Unavailable(failure)),
+            },
         }
     }
 }
