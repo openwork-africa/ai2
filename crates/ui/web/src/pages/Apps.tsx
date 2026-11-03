@@ -196,7 +196,7 @@ export default function Apps() {
               <LayoutGrid />
             </EmptyMedia>
             <EmptyTitle>The shelf is empty</EmptyTitle>
-            <EmptyDescription>An app is anything on this machine that listens on a port and starts with one command. Add the first one here, or let your agent put the one it just built on the shelf.</EmptyDescription>
+            <EmptyDescription>Add your first app here, or ask your agent to add the one it just made.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 apps register --openapi /openapi.json …</Code>
