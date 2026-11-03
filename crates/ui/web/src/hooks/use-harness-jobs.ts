@@ -93,7 +93,7 @@ export function useHarnessJobs(onFinished: () => void) {
       }
       controllers.current.delete(summary.id);
       if (!ended && !controller.signal.aborted)
-        update({ type: "done", ok: false, message: "The page lost touch with this job." });
+        update({ type: "done", ok: false, message: "This page lost touch with the job." });
       if (!controller.signal.aborted) finished.current();
     };
     void run();

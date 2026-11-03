@@ -91,7 +91,7 @@ function Logs({ app }: { app: App }) {
         className="h-[22rem] overflow-auto rounded-2xl bg-neutral-950 px-4 py-3 font-mono text-[0.75rem] leading-5 text-neutral-200 shadow-(--shadow-card) ring-1 ring-black/10 [font-variant-ligatures:none] dark:bg-black/60 dark:ring-white/10"
       >
         {lines.length === 0 ? (
-          <p className="text-neutral-500">{app.running ? "Waiting for the app to write something…" : "No log yet. Start the app and what it writes shows up here."}</p>
+          <p className="text-neutral-500">{app.running ? "Listening. The app hasn't said anything yet." : "Nothing yet. Logs are whatever the app prints while it runs; press Start and they land here."}</p>
         ) : (
           lines.map((line, at) => (
             <div key={at} className="flex gap-3 whitespace-pre-wrap break-all">
@@ -175,7 +175,7 @@ function ApiTab({ app, onChecked }: { app: App; onChecked: () => void }) {
       {app.api.error && (
         <Alert>
           <TriangleAlert />
-          <AlertTitle>The last check {app.api.state === "invalid" ? "found a problem" : "could not reach it"}</AlertTitle>
+          <AlertTitle>The last check {app.api.state === "invalid" ? "found a problem" : "couldn't reach the app"}</AlertTitle>
           <AlertDescription>{app.api.error}</AlertDescription>
         </Alert>
       )}
@@ -206,7 +206,7 @@ function ApiTab({ app, onChecked }: { app: App; onChecked: () => void }) {
         <Empty className="rounded-3xl border border-dashed py-12">
           <EmptyHeader>
             <EmptyTitle>No OpenAPI document yet</EmptyTitle>
-            <EmptyDescription>{missing ?? "ai2 checks it once the app is running."}</EmptyDescription>
+            <EmptyDescription>{missing ?? "The OpenAPI document is what tells your agents what this app can do. Once the app is running, ai squared fetches it from the path in Settings."}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>{app.openapi}</Code>
@@ -226,7 +226,7 @@ function Setting({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-const RESTART_LABEL = { never: "Never, keeps running when ai2 ui stops", "on-failure": "When it fails", always: "Always" };
+const RESTART_LABEL = { never: "Never; it outlives ai squared", "on-failure": "When it fails", always: "Always" };
 
 function Settings({ app, onEdit, onRemove }: { app: App; onEdit: () => void; onRemove: () => void }) {
   const env = Object.entries(app.env);
@@ -236,7 +236,7 @@ function Settings({ app, onEdit, onRemove }: { app: App; onEdit: () => void; onR
         <dl className="divide-y px-(--card-spacing)">
           <Setting label="Run command"><Code>{app.command}</Code></Setting>
           <Setting label="Folder"><span className="font-mono text-xs">{app.cwd}</span></Setting>
-          <Setting label="Address">{app.url} {app.set_port ? <span className="text-muted-foreground">· ai2 sets PORT={app.port}</span> : null}</Setting>
+          <Setting label="Address">{app.url} {app.set_port ? <span className="text-muted-foreground">· ai squared sets PORT={app.port}</span> : null}</Setting>
           <Setting label="OpenAPI"><span className="font-mono text-xs">{app.openapi}</span></Setting>
           <Setting label="Restart">{RESTART_LABEL[app.restart]}</Setting>
           <Setting label="Environment">
@@ -300,7 +300,7 @@ export default function AppDetail() {
   if (error && error.status === 404) {
     return (
       <Page>
-        <PageHeader back={{ to: "/", label: "Apps" }} title="No such app" description={error.message} />
+        <PageHeader back={{ to: "/", label: "Apps" }} title="No app by that name" description={error.message} />
       </Page>
     );
   }
@@ -348,7 +348,7 @@ export default function AppDetail() {
           <>
             <Button onClick={() => act("play", () => openApp(app, setApp))} disabled={busy !== null}>
               {busy === "play" ? <Spinner /> : app.running ? <ExternalLink /> : <Play />}
-              {app.running ? "Open" : "Play"}
+              {app.running ? "Open" : "Start"}
             </Button>
             {app.started_here && (
               <Button variant="outline" onClick={() => act("restart", () => restartApp(app.id).then(({ app }) => setApp(app)))} disabled={busy !== null}>
@@ -424,9 +424,9 @@ export default function AppDetail() {
 
       <p className="text-xs text-muted-foreground">
         {app.started_here && app.since
-          ? `Started by ai2 ui at ${new Date(app.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${app.restarts} ${app.restarts === 1 ? "restart" : "restarts"}`
+          ? `Started by ai squared at ${new Date(app.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${app.restarts} ${app.restarts === 1 ? "restart" : "restarts"}`
           : app.running
-            ? "Running, but not started by ai2, so ai2 does not stop it."
+            ? "Running, but something else started it, so ai squared leaves it be."
             : `Added ${new Date(app.added).toLocaleDateString()}`}
       </p>
 
@@ -434,7 +434,7 @@ export default function AppDetail() {
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
           <SheetHeader>
             <SheetTitle>Edit {app.name}</SheetTitle>
-            <SheetDescription>Changes apply the next time the app starts.</SheetDescription>
+            <SheetDescription>Changes take effect the next time the app starts.</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-6">
             {editing && (

@@ -39,9 +39,9 @@ export default function Review() {
             <EmptyMedia variant="icon">
               <FileSearch />
             </EmptyMedia>
-            <EmptyTitle>{missing ? "No review here" : "The review could not be read"}</EmptyTitle>
+            <EmptyTitle>{missing ? "No review at this address" : "The review wouldn't load"}</EmptyTitle>
             <EmptyDescription>
-              {missing ? "It may have been removed, or the folder was never reviewed." : current.error.message}
+              {missing ? "It may have been removed, or that folder hasn't had a review yet." : current.error.message}
             </EmptyDescription>
           </EmptyHeader>
           {missing && (

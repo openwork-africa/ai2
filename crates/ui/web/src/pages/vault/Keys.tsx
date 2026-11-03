@@ -52,15 +52,15 @@ export default function Keys() {
           </Button>
         }
       >
-        Each key is sealed in the vault and sent only to the URLs you approve. Agents never see it.
+        Each key is sealed in the vault and travels only to the URLs you approved. No agent ever sees one.
       </Toolbar>
       {error && !data ? (
         <Failed message={error} />
       ) : !data ? (
         <Rows />
       ) : keys.length === 0 ? (
-        <Nothing icon={KeyRound} title="No keys yet">
-          Add an API key and the URLs it may be sent to. Apps then call through the vault with a token.
+        <Nothing icon={KeyRound} title="The vault is empty">
+          A key is an API key the vault holds on your behalf, with the URLs it may visit. The first one goes in here; from then on, apps and agents call through the vault with a token.
         </Nothing>
       ) : (
         <Panel>
@@ -100,7 +100,7 @@ export default function Keys() {
                     </TableCell>
                     <TableCell className="py-3 align-top text-xs text-muted-foreground">
                       {rotation ? (
-                        <QueuedTag>new secret queued</QueuedTag>
+                        <QueuedTag>new key queued</QueuedTag>
                       ) : (
                         <span className="flex flex-col">
                           <When value={key.rotated ?? key.created} />
@@ -184,7 +184,7 @@ function AddKey({
 
   const propose = async () => {
     if (!validName(trimmed) || !description.trim()) {
-      setProblem("Give the key a name and a description first: the model reads the description.");
+      setProblem("A name and a description come first; the vetting model reads the description.");
       return;
     }
     setProblem("");
@@ -199,7 +199,7 @@ function AddKey({
       if (found.approved_urls.length) {
         setUrls(found.approved_urls.join("\n"));
         setProposed(true);
-      } else setProblem("The vetting model proposed no URLs. Write them yourself.");
+      } else setProblem("The vetting model had no suggestions this time. The URLs can be typed in below.");
     } catch (failure) {
       setProblem(problem(failure));
     } finally {
@@ -211,9 +211,9 @@ function AddKey({
     event.preventDefault();
     const approved = lines(urls);
     if (!validName(trimmed)) return setProblem("A name is letters, digits, - _ . and at most 64.");
-    if (!approved.length) return setProblem("Add at least one approved URL, or press Propose URLs and check what comes back.");
+    if (!approved.length) return setProblem("The key needs at least one approved URL. Propose URLs will offer some.");
     if (chosen.arg && !arg.trim()) return setProblem(`Fill in the ${chosen.label.toLowerCase()}.`);
-    if (!secret) return setProblem("Paste the secret.");
+    if (!secret) return setProblem("The key itself goes here.");
     enqueue({
       action: "put_key",
       name: trimmed,
@@ -232,7 +232,7 @@ function AddKey({
         <form onSubmit={submit} autoComplete="off" className="flex min-h-0 flex-1 flex-col">
           <SheetHeader className="pb-2">
             <SheetTitle>Add a key</SheetTitle>
-            <SheetDescription>It joins your pending changes. On Apply the secret goes to the vault and is never shown again.</SheetDescription>
+            <SheetDescription>It joins your pending changes. On Apply the key goes into the vault and is never shown again.</SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-2">
             <FieldGroup className="gap-5">
@@ -246,7 +246,7 @@ function AddKey({
                   className="font-mono"
                   autoFocus
                 />
-                {replaces && <FieldDescription>A key with this name exists; adding replaces it.</FieldDescription>}
+                {replaces && <FieldDescription>A key already answers to this name; adding replaces it.</FieldDescription>}
               </Field>
               <Field>
                 <FieldLabel>Description</FieldLabel>
@@ -256,7 +256,7 @@ function AddKey({
                   rows={2}
                   placeholder="Payments for the shop: charges and refunds"
                 />
-                <FieldDescription>What the key is for. The vetting model reads this.</FieldDescription>
+                <FieldDescription>What the key is for. The vetting model reads this when it proposes URLs.</FieldDescription>
               </Field>
               <Field>
                 <div className="flex items-center justify-between gap-2">
@@ -279,8 +279,8 @@ function AddKey({
                 />
                 <FieldDescription>
                   {proposed
-                    ? "Proposed by the vetting model from the description. Check them before you add the key."
-                    : "One URL prefix per line. The secret is only ever sent to these."}
+                    ? "Proposed by the vetting model from the description. Worth a look before the key goes in."
+                    : "One URL prefix per line. The key only ever travels to these."}
                 </FieldDescription>
               </Field>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -372,11 +372,11 @@ function Rotate({
             </AlertDialogMedia>
             <AlertDialogTitle>Rotate {keyRecord?.name}</AlertDialogTitle>
             <AlertDialogDescription>
-              On Apply the new secret replaces the old one and is never shown again. Approved URLs stay as they are.
+              On Apply the new key replaces the old one and is never shown again. Approved URLs stay as they are.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Field>
-            <FieldLabel>New secret</FieldLabel>
+            <FieldLabel>New key</FieldLabel>
             <Input
               type="password"
               value={secret}

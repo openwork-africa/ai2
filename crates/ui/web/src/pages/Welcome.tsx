@@ -68,7 +68,7 @@ export default function Welcome() {
             <section
               key={chapter.id}
               aria-roledescription="slide"
-              aria-label={`${at + 1} of ${CHAPTERS.length}: ${chapter.label}`}
+              aria-label={welcome.go(at)}
               aria-hidden={at !== index}
               className="flex w-full shrink-0 snap-center snap-always flex-col items-center justify-center px-6"
             >
@@ -97,7 +97,7 @@ export default function Welcome() {
                 key={chapter.id}
                 type="button"
                 onClick={() => go(at)}
-                aria-label={welcome.go(chapter.label)}
+                aria-label={welcome.go(at)}
                 aria-current={at === index ? "step" : undefined}
                 className="flex h-6 items-center rounded-full px-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >

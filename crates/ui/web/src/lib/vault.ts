@@ -180,10 +180,10 @@ export type TokenRequest = {
 };
 
 export const tokenRequest = (form: TokenForm): { request: TokenRequest } | { problem: string } => {
-  if (!form.keys.length) return { problem: "Choose at least one key." };
+  if (!form.keys.length) return { problem: "A token needs at least one key." };
   if (!form.sandbox) return { problem: "Choose a sandbox." };
   const methods = form.methods === "custom" ? words(form.methodList.toUpperCase()).join(",") : form.methods;
-  if (!methods) return { problem: "Write at least one method." };
+  if (!methods) return { problem: "Only these needs at least one method." };
   const intent = form.intent.trim();
   if (form.mode === "agent" && !intent) return { problem: "An agent token needs an intent." };
   const request: TokenRequest = { keys: form.keys, sandbox: form.sandbox, mode: form.mode, methods };
@@ -193,7 +193,7 @@ export const tokenRequest = (form: TokenForm): { request: TokenRequest } | { pro
   if (form.ttl.trim()) request.ttl = form.ttl.trim();
   if (form.uses.trim()) {
     const uses = Number(form.uses);
-    if (!Number.isInteger(uses) || uses < 1) return { problem: "Uses is a whole number, at least 1." };
+    if (!Number.isInteger(uses) || uses < 1) return { problem: "Uses is a whole number of at least 1." };
     request.uses = uses;
   }
   return { request };
@@ -217,7 +217,7 @@ export const sandboxRequest = (form: SandboxForm): { request: SandboxRequest } |
   }
   const listen = form.listen.trim();
   const peers = words(form.peers);
-  if (!listen) return { problem: "Give the address to listen on, like 192.168.64.1:7801." };
+  if (!listen) return { problem: "An address to listen on, like 192.168.64.1:7801." };
   if (!peers.length) return { problem: "A TCP sandbox needs at least one peer address." };
   return { request: { name, tcp: listen, peers } };
 };
@@ -268,7 +268,7 @@ export type Presence = {
 
 export class Cancelled extends Error {
   constructor() {
-    super("Cancelled: nothing was changed.");
+    super("Cancelled, so nothing changed.");
   }
 }
 

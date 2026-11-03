@@ -101,7 +101,7 @@ function RatingTile({ card }: { card: RatingCard }) {
             <Badge variant="secondary">{card.short}</Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            {card.riskier ? "Lower is safer: how risky the run was." : "Higher is safer: how well the stack holds up."}
+            {card.riskier ? "Lower is safer. A reviewer read what the run changed." : "Higher is safer. Fresh exploits against the stack, weighed."}
           </p>
         </div>
         {rating ? (
@@ -134,7 +134,7 @@ function RatingTile({ card }: { card: RatingCard }) {
         ) : (
           <div className="flex items-start gap-2.5 rounded-2xl bg-fill-default p-3.5 text-sm text-muted-foreground">
             <Info className="mt-0.5 size-4 shrink-0" />
-            <p>{card.missing || "Could not be rated: see the notes."}</p>
+            <p>{card.missing || "No rating this time; the notes say why."}</p>
           </div>
         )}
       </CardContent>
@@ -172,7 +172,7 @@ function Heads({ names }: { names: string[] }) {
 }
 
 function Technologies({ review }: { review: Review }) {
-  if (!review.technologies.length) return <None>No technologies were found.</None>;
+  if (!review.technologies.length) return <None>No technologies turned up.</None>;
   const rows = [...review.technologies].sort((a, b) => b.risk - a.risk);
   return (
     <Panel>
@@ -258,7 +258,7 @@ function Status({ fixed, label }: { fixed: boolean; label?: string }) {
 }
 
 function Findings({ review }: { review: Review }) {
-  if (!review.findings.length) return <None>No findings.</None>;
+  if (!review.findings.length) return <None>Nothing to report.</None>;
   const rows = bySeverity(review.findings).sort((a, b) => Number(isFixed(a)) - Number(isFixed(b)));
   return (
     <Panel>
@@ -388,7 +388,7 @@ export function ReviewHeader({ review }: { review: Review }) {
             {review.harness}
           </Badge>
         )}
-        <Badge variant="secondary">ai2 v{review.version}</Badge>
+        <Badge variant="secondary">v{review.version}</Badge>
       </div>
       {review.objective && (
         <blockquote className="max-w-prose border-l-2 border-foreground/20 pl-3 text-base text-foreground">

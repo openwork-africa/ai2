@@ -124,7 +124,7 @@ export default function Setup() {
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pt-4 pb-3.5 sm:px-6">
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => navigate("/")} aria-label="ai2 home" className="rounded-lg">
+            <button type="button" onClick={() => navigate("/")} aria-label="ai squared home" className="rounded-lg">
               <Mark />
             </button>
             <div className="flex min-w-0 flex-col leading-tight">

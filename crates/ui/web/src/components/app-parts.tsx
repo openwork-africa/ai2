@@ -82,7 +82,7 @@ export function RemoveDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Remove {app.name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            ai2 forgets the app, its icon and its OpenAPI copy. {app.running ? "It keeps running; stop it first if you want it gone." : "Its folder is not touched."}
+            The app, its icon and its OpenAPI copy leave the shelf. {app.running ? "The app itself keeps running until you stop it." : "The folder isn't touched."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

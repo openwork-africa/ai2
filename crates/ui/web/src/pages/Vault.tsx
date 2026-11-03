@@ -35,13 +35,13 @@ export default function Vault() {
     <Page>
       <PageHeader
         title="Vault"
-        description="Keys, tokens, sandboxes, approvals and the audit log. Secrets stay in the vault service; this page never sees them."
+        description="Keys, tokens, sandboxes, approvals and the audit log. An agent holds a token bound to its sandbox; the key itself stays in the vault, and this page never sees one."
         actions={
           vault && (
             <Badge variant="outline" size="lg">
               <Dot tone={vault.reachable ? "success" : "warning"} className="ring-0" />
-              {vault.reachable ? `daemon v${vault.version ?? "?"}` : "daemon not running"}
-              {vault.reachable && vault.master_key !== null && ` · ${vault.master_key ? "key loaded" : "no key"}`}
+              {vault.reachable ? `vault v${vault.version ?? "?"}` : "vault down"}
+              {vault.reachable && vault.master_key !== null && ` · ${vault.master_key ? "master key loaded" : "no master key"}`}
             </Badge>
           )
         }
@@ -52,8 +52,8 @@ export default function Vault() {
             <EmptyMedia variant="icon">
               <KeyRound />
             </EmptyMedia>
-            <EmptyTitle>The vault is not running</EmptyTitle>
-            <EmptyDescription>Setup installs it and starts it with you.</EmptyDescription>
+            <EmptyTitle>The vault is down</EmptyTitle>
+            <EmptyDescription>The vault is the one process that ever holds a key. Setup installs it and starts it whenever you log in.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Code>ai2 setup</Code>

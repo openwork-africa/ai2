@@ -1,27 +1,24 @@
-export type Chapter = { id: string; label: string; title: string; body: string; image: string; alt: string };
+export type Chapter = { id: string; title: string; body: string; image: string; alt: string };
 
 export const CHAPTERS: Chapter[] = [
   {
     id: "monitor",
-    label: "Monitor",
-    title: "Every app you make, in one place.",
-    body: "ai squared keeps the apps you and your agents build on this machine together. Running or stopped, each one is here with its logs and its API.",
+    title: "ai squared keeps every agent on this machine in view while it works.",
+    body: "Claude Code, Codex, pi, fx and the rest live on this machine, and ai squared keeps them in view: which ones are installed and signed in, which are running right now, and what each run did, line by line, as it happens.",
     image: "/welcome/monitor.webp",
-    alt: "A telescope on a hill watching a constellation of app windows, one of them green.",
+    alt: "A telescope on a hill watching three rounded agents at work among floating app windows, one of them green.",
   },
   {
     id: "secure",
-    label: "Secure",
-    title: "Your keys never reach your agents.",
-    body: "Agents get a token, not the secret. The vault adds the key on the way out, only to the hosts you allow. And every run is audited, with a Modern Security Rating and a Run Risk Factor.",
+    title: "ai squared treats every agent as if it might be compromised.",
+    body: "Every run is audited against exploits published in the last few days, and a reviewer reads every file it changed. Each call is held against the job you gave the run, and anything that writes waits for your yes. A tricked agent holds a token, never a key, so it has nothing to leak.",
     image: "/welcome/secure.webp",
     alt: "A vault door set in a shield, with a key beside it.",
   },
   {
     id: "consume",
-    label: "Consume",
-    title: "Open them, run them, use them.",
-    body: "Start an app and use it in your browser. Your agents can use it too, through MCP and OpenAPI. First, setup gets the vault ready on this machine.",
+    title: "All your apps live in one place, where you manage them, your agents reach them, and each build teaches the next.",
+    body: "Start them, stop them, read their logs and change their settings from one shelf. Your agents reach each one through MCP and its OpenAPI document. Set up comes next, and it gets the vault ready on this machine.",
     image: "/welcome/consume.webp",
     alt: "Jars of apps on a shelf, a hand lifting the green one.",
   },
@@ -29,9 +26,9 @@ export const CHAPTERS: Chapter[] = [
 
 export const welcome = {
   name: "ai squared",
-  tagline: "Built to monitor, secure and consume your own apps.",
+  tagline: "Your agents watched, your keys kept, your apps together. Nothing leaves this machine.",
   next: "Next",
   setUp: "Set up",
   skip: "Skip",
-  go: (label: string) => `Go to ${label}`,
+  go: (index: number) => `Screen ${index + 1} of ${CHAPTERS.length}`,
 };

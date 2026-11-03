@@ -32,7 +32,7 @@ export default function Approvals() {
     setDeciding(approval.id);
     await run(
       () => vault("POST", `/approvals/${segment(approval.id)}`, { approve }, `${approve ? "allow" : "refuse"} this call`),
-      { done: approve ? "Allowed the call" : "Refused the call", after: refreshApprovals },
+      { done: approve ? "Let it through" : "Turned it away", after: refreshApprovals },
     );
     setDeciding(null);
   };
@@ -40,15 +40,15 @@ export default function Approvals() {
   return (
     <div className="flex flex-col gap-4">
       <Toolbar>
-        Write calls on agent tokens wait here for you. Undecided after two minutes, they are refused.
+        Write calls on agent tokens wait here for your word, so a run that has gone astray can't change the world on its own. After two minutes with no answer, the vault says no for you.
       </Toolbar>
       {error && !approvals ? (
         <Failed message={error} />
       ) : !approvals ? (
         <Rows count={2} />
       ) : approvals.length === 0 ? (
-        <Nothing icon={Inbox} title="Nothing is waiting">
-          When an agent asks to change something, the call shows up here. This page checks every few seconds.
+        <Nothing icon={Inbox} title="Nobody is waiting">
+          An approval is a write call an agent wants to make with its token. When one asks to change something out in the world, the call queues here; this page looks every few seconds.
         </Nothing>
       ) : (
         <ItemGroup className="gap-3">

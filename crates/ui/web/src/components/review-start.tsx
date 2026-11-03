@@ -47,14 +47,14 @@ export function StartReview({ onDone }: { onDone: () => void }) {
               setRun({
                 state: "failed",
                 lines: [...lines],
-                message: data.message ?? `ai2 stopped with exit code ${data.code ?? "?"}.`,
+                message: data.message ?? `The review stopped with exit code ${data.code ?? "?"}.`,
               });
             }
           }
         },
         { signal: abort.current.signal },
       );
-      if (!finished) setRun({ state: "failed", lines: [...lines], message: "The review stopped answering." });
+      if (!finished) setRun({ state: "failed", lines: [...lines], message: "The review went quiet." });
     } catch (failure) {
       if ((failure as Error).name === "AbortError") return;
       const message = failure instanceof ApiError ? failure.message : (failure as Error).message;
@@ -95,7 +95,7 @@ export function StartReview({ onDone }: { onDone: () => void }) {
               disabled={busy}
               required
             />
-            <span className="text-xs text-muted-foreground">The folder the run worked in, as a full path.</span>
+            <span className="text-xs text-muted-foreground">The folder the agent worked in, as a full path.</span>
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">Objective</span>
@@ -105,7 +105,7 @@ export function StartReview({ onDone }: { onDone: () => void }) {
               placeholder="Add a pricing page"
               disabled={busy}
             />
-            <span className="text-xs text-muted-foreground">What the run was asked to do. Optional.</span>
+            <span className="text-xs text-muted-foreground">What the agent was asked to do, if you want it on the record.</span>
           </label>
           {run.state !== "idle" && (
             <div className="flex flex-col gap-2">
@@ -113,7 +113,7 @@ export function StartReview({ onDone }: { onDone: () => void }) {
                 {run.state === "running" && <Spinner className="size-4" />}
                 {run.state === "done" && <CircleCheck className="size-4 text-success" />}
                 {run.state === "failed" && <CircleAlert className="size-4 text-destructive" />}
-                {run.state === "running" ? "Reviewing" : run.state === "done" ? "Review written" : "Review failed"}
+                {run.state === "running" ? "Reviewing" : run.state === "done" ? "Review written" : "The review didn't finish"}
               </div>
               <pre className="max-h-64 overflow-auto rounded-2xl bg-fill-default p-3 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
                 {lines.length ? lines.join("\n") : "Starting…"}

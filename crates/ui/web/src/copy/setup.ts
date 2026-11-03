@@ -18,15 +18,15 @@ const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
     },
     unsupported: {
       title: "Containers",
-      why: "This machine cannot keep agents in a container yet; setup carries on, with a warning.",
-      fact: "Apple's `container` needs macOS 26 on Apple silicon; Docker support is coming. Until then an agent on the host can read what you can.",
+      why: "This machine can't box agents in a container yet, so setup carries on and leaves a note.",
+      fact: "Apple's `container` needs macOS 26 on Apple silicon; Docker support is coming. Until then an agent on the host can read whatever you can.",
     },
   },
   "master-key": {
     macos: {
       title: "Master key",
       why: "One random key, kept by the Mac, locks every secret in the vault.",
-      fact: "The login keychain has guarded Mac passwords since Mac OS 8.6, in 1999. Only the ai2 binary may read this item.",
+      fact: "The login keychain has guarded Mac passwords since Mac OS 8.6, in 1999. Only the ai squared binary may read this item.",
     },
     linux: {
       title: "Master key",
@@ -36,25 +36,25 @@ const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
   },
   presence: {
     macos: {
-      title: "Human check",
-      why: "Every change to the vault needs Touch ID or your password, so a process cannot approve itself.",
-      fact: "Your fingerprint never leaves the Secure Enclave; macOS, and ai2, only ever get a yes or a no.",
+      title: "Only you",
+      why: "Every change to the vault needs Touch ID or your password. No process can say yes on your behalf.",
+      fact: "Your fingerprint never leaves the Secure Enclave; macOS, and ai squared, only ever get a yes or a no.",
     },
     linux: {
-      title: "Human check",
-      why: "Every change to the vault needs this passphrase, so a process cannot approve itself.",
+      title: "Only you",
+      why: "Every change to the vault needs this passphrase. No process can say yes on your behalf.",
       fact: "Argon2id won the Password Hashing Competition in 2015. It is slow and hungry for memory on purpose, so guessing is expensive.",
     },
   },
   daemon: {
     macos: {
       title: "Vault service",
-      why: "The one process that ever holds a secret; it starts with you and injects keys into requests on the agent's behalf.",
+      why: "The only process that ever holds a key. It wakes when you log in and slips the key into each approved request on the agent's behalf.",
       fact: "`launchd` has been PID 1 on every Mac since Tiger, in 2005. It will start the vault at login and again if it ever stops.",
     },
     linux: {
       title: "Vault service",
-      why: "The one process that ever holds a secret, under its own user, with the rest of the system read-only to it.",
+      why: "The only process that ever holds a key. It runs under its own user and sees the rest of the system as read-only.",
       fact: "`ProtectSystem=strict` makes the whole filesystem read-only for the service except the two folders it is handed.",
     },
   },
@@ -66,24 +66,24 @@ export const stepCopy = (id: StepId, branch: Branch): StepCopy => {
 };
 
 export const hostLine = {
-  title: "Looking at this machine",
+  title: "What setup found on this machine",
 };
 
 export const prompts = {
   passphrase: {
     title: "Choose the vault passphrase",
-    why: "It is asked for every change to the vault. It is hashed with Argon2id; the vault never keeps it.",
-    fields: ["Passphrase", "The same again"],
+    why: "Every change to the vault will ask for it. The vault keeps an Argon2id hash, never the passphrase itself.",
+    fields: ["Passphrase", "Once more"],
   },
   sudo: {
-    title: "Your password, for sudo",
-    why: "Setup writes to /etc and installs a system service; sudo asks once and remembers for a few minutes.",
+    title: "Your login password, for sudo",
+    why: "Setup writes to /etc and installs a system service. sudo asks once and remembers you for a few minutes.",
     fields: ["Password"],
   },
 };
 
-export const failureHint = "Fix that, then press Try again; setup picks up from here.";
-export const localOnly = "Everything here runs on this machine. Nothing is sent anywhere.";
+export const failureHint = "Once that's sorted, Try again picks up from this step.";
+export const localOnly = "All of this happens on this machine. Nothing is sent anywhere.";
 
 export const machineName = (os: string | undefined) => (os === "macos" ? "this Mac" : "this machine");
 
@@ -92,7 +92,7 @@ export const strip = {
   checking: (machine: string) => `Checking ${machine}`,
   running: (machine: string) => `Setting up ${machine}`,
   ready: "Ready",
-  stopped: "Setup stopped",
+  stopped: "Setup paused",
   checked: "Checked",
   step: (current: number, total: number) => `Step ${current} of ${total}`,
   of: (done: number, total: number) => `${done} of ${total}`,
@@ -111,7 +111,7 @@ export const states = {
 export const stepText = {
   showLog: "Show the log",
   hideLog: "Hide the log",
-  noLog: "Nothing written yet.",
+  noLog: "Nothing to show yet.",
   tryAgain: "Try again",
   copyLog: "Copy the log",
   copied: "Copied",
@@ -119,29 +119,29 @@ export const stepText = {
 
 export const inputText = {
   continue: "Continue",
-  cancel: "Cancel setup",
-  differ: "The two passphrases differ. Type the same one twice.",
+  cancel: "Stop setup",
+  differ: "Those two don't match.",
 };
 
 export const doneText = {
   setUp: (machine: string) => `${machine.charAt(0).toUpperCase()}${machine.slice(1)} is set up`,
   checked: (machine: string) => `Checked ${machine}`,
-  allReady: "Every step is in place. Nothing was changed.",
-  needed: (count: number) => `${count} ${count === 1 ? "step needs" : "steps need"} setting up. Nothing was changed.`,
-  stopped: (title: string) => `Setup stopped at ${title}`,
+  allReady: "Every step was already in place, so nothing was touched.",
+  needed: (count: number) => `${count} ${count === 1 ? "step needs" : "steps need"} setting up. Nothing was touched.`,
+  stopped: (title: string) => `Setup paused at ${title}`,
   address: "Your address",
-  bookmark: "Bookmark it; ai2 ui prints it again.",
-  open: "Open ai2",
+  bookmark: "Worth a bookmark; ai2 ui prints it again whenever you ask.",
+  open: "Open ai squared",
   setItUp: "Set it up",
 };
 
 export const idleText = {
-  title: "Nothing has run yet",
-  why: "Setup changes only what is missing, and asks here before anything needs a password.",
+  title: "Nothing has happened yet",
+  why: "Setup touches only what's missing, and it asks here before anything that needs a password.",
   start: "Set up",
-  check: "Check only",
+  check: "Just look",
 };
 
 export const fullLog = "Full log";
-export const fullLogWhy = "Every line setup wrote, step by step.";
-export const disconnected = "Reconnecting to ai2";
+export const fullLogWhy = "Every line setup wrote, in order.";
+export const disconnected = "Reconnecting to ai squared";

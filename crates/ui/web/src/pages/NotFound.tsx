@@ -12,8 +12,8 @@ export default function NotFound() {
           <EmptyMedia variant="icon">
             <Compass />
           </EmptyMedia>
-          <EmptyTitle>There is nothing here</EmptyTitle>
-          <EmptyDescription>The address does not match a page of ai2.</EmptyDescription>
+          <EmptyTitle>Nothing lives at this address</EmptyTitle>
+          <EmptyDescription>No page of ai squared answers to it.</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
           <Button variant="outline" asChild>
