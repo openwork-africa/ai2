@@ -1104,3 +1104,108 @@ fn without_systemd_or_on_another_os_the_dashboard_is_unsupported() {
         assert!(fake.lines().is_empty());
     }
 }
+
+const WHICH_PKCHECK: &str = "/bin/sh -c command -v pkcheck";
+
+fn presence(fake: &Fake, check_only: bool) -> crate::State {
+    use crate::steps::PresenceStep;
+    use crate::Step;
+    dashboard_context(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        fake,
+        check_only,
+        |ctx| {
+            let checked = PresenceStep.check(ctx).unwrap();
+            if check_only || checked.is_ready() {
+                return checked;
+            }
+            PresenceStep.apply(ctx, &checked).unwrap()
+        },
+    )
+}
+
+#[test]
+fn a_fresh_linux_with_polkit_gets_the_policy_and_the_fallback_passphrase() {
+    let fake = Fake::default();
+    linux_fresh(&fake);
+    fake.answer(WHICH_PKCHECK, Ran::ok("/usr/bin/pkcheck\n"));
+    let master = MemoryKey::default();
+    let (ok, report) = setup(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        &master,
+        false,
+        false,
+    );
+    assert!(ok, "{report} {:?}", fake.lines());
+    let step = &report["steps"]["presence"];
+    assert_eq!(step["status"], "ready");
+    assert_eq!(step["polkit"], "ready");
+    assert_eq!(step["method"], "login-password");
+    let files = fake.files.borrow();
+    assert_eq!(
+        files[Path::new(keys::polkit::POLICY_FILE)].0,
+        keys::polkit::policy("ai2-vault")
+    );
+    assert!(files[Path::new(keys::polkit::POLICY_FILE)]
+        .0
+        .contains("unix-user:ai2-vault"));
+    assert!(fake.ran_any(&format!(
+        "root sh -c umask 022 && cat > \"$1.new\" && mv \"$1.new\" \"$1\" sh {}",
+        keys::polkit::POLICY_FILE
+    )));
+    assert!(files.contains_key(Path::new("/var/lib/ai2-vault/passphrase")));
+}
+
+#[test]
+fn a_polkit_check_reports_the_missing_policy_and_writes_nothing() {
+    let fake = Fake::default();
+    fake.answer(WHICH_PKCHECK, Ran::ok("/usr/bin/pkcheck\n"))
+        .answer("root? sh -c if test -s", Ran::ok("yes\n"));
+    let state = presence(&fake, true);
+    assert_eq!(state.status, crate::Status::Missing);
+    assert_eq!(state.info["polkit"], "missing");
+    assert_eq!(state.info["passphrase"], true);
+    assert!(fake.files.borrow().is_empty());
+    assert!(fake.lines().iter().all(|line| !line.starts_with("root ")));
+}
+
+#[test]
+fn only_the_missing_policy_is_added_when_the_passphrase_is_there() {
+    let fake = Fake::default();
+    fake.answer(WHICH_PKCHECK, Ran::ok("/usr/bin/pkcheck\n"))
+        .answer("root sh -c if test -s", Ran::ok("yes\n"));
+    let state = presence(&fake, false);
+    assert!(state.is_ready(), "{state:?}");
+    assert_eq!(state.info["polkit"], "ready");
+    assert!(fake.asked.borrow().is_empty());
+    assert!(!fake.ran_any("root install -d -m 0700"));
+    assert!(fake
+        .files
+        .borrow()
+        .contains_key(Path::new(keys::polkit::POLICY_FILE)));
+}
+
+#[test]
+fn a_policy_in_place_is_ready_and_without_pkcheck_none_is_written() {
+    let fake = Fake::default();
+    fake.answer(WHICH_PKCHECK, Ran::ok("/usr/bin/pkcheck\n"))
+        .answer("root sh -c if test -s", Ran::ok("yes\n"))
+        .file(
+            keys::polkit::POLICY_FILE,
+            &keys::polkit::policy("ai2-vault"),
+        );
+    let state = presence(&fake, false);
+    assert!(state.is_ready());
+    assert!(!fake.ran_any("root sh -c umask"));
+
+    let bare = Fake::default();
+    bare.answer("root sh -c if test -s", Ran::ok("yes\n"));
+    let state = presence(&bare, false);
+    assert!(state.is_ready());
+    assert_eq!(state.info["polkit"], "absent");
+    assert_eq!(state.info["method"], "passphrase");
+    assert!(bare.files.borrow().is_empty());
+}

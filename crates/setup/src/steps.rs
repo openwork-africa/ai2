@@ -302,6 +302,40 @@ pub struct PresenceStep;
 
 const HAS_FILE: &str = r#"if test -s "$1"; then echo yes; else echo no; fi"#;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Polkit {
+    Absent,
+    Missing,
+    Written,
+}
+
+impl Polkit {
+    fn word(self) -> &'static str {
+        match self {
+            Polkit::Absent => "absent",
+            Polkit::Missing => "missing",
+            Polkit::Written => "ready",
+        }
+    }
+}
+
+fn polkit(ctx: &Context) -> Result<Polkit> {
+    if found(ctx, keys::polkit::PKCHECK)?.is_none() {
+        return Ok(Polkit::Absent);
+    }
+    let expected = keys::polkit::policy(USER);
+    let written = ctx
+        .runner
+        .read(Path::new(keys::polkit::POLICY_FILE))
+        .as_deref()
+        == Some(expected.as_str());
+    Ok(if written {
+        Polkit::Written
+    } else {
+        Polkit::Missing
+    })
+}
+
 impl Step for PresenceStep {
     fn id(&self) -> &'static str {
         "presence"
@@ -317,14 +351,25 @@ impl Step for PresenceStep {
                     &Cmd::new("sh", &["-c", HAS_FILE, "sh", LINUX_PASSPHRASE])
                         .root_if(!ctx.check_only),
                 )?;
-                let state = match ran.out.trim() {
-                    "yes" => State::new(Status::Ready),
-                    "no" => State::new(Status::Missing),
+                let hashed = ran.out.trim();
+                let polkit = polkit(ctx)?;
+                let mut state = match (hashed, polkit) {
+                    ("yes", Polkit::Absent | Polkit::Written) => State::new(Status::Ready),
+                    ("yes" | "no", _) => State::new(Status::Missing),
                     _ => State::new(Status::Unknown)
                         .with("reason", "reading the passphrase hash needs sudo"),
                 };
+                if hashed == "yes" || hashed == "no" {
+                    state = state.with("passphrase", hashed == "yes");
+                }
+                let method = if polkit == Polkit::Absent {
+                    "passphrase"
+                } else {
+                    "login-password"
+                };
                 Ok(state
-                    .with("method", "passphrase")
+                    .with("method", method)
+                    .with("polkit", polkit.word())
                     .with("hash", LINUX_PASSPHRASE))
             }
             Os::Other { .. } => Ok(State::new(Status::Unsupported)),
@@ -336,6 +381,21 @@ impl Step for PresenceStep {
             Os::Macos { .. } => bail!("this Mac cannot confirm that a human is there: set a login password and Touch ID in System Settings, then run ai2 setup again"),
             Os::Other { .. } => return Ok(checked.clone()),
             Os::Linux { .. } => {}
+        }
+        if checked.info.get("polkit") == Some(&Value::from(Polkit::Missing.word())) {
+            ctx.runner.say(&format!(
+                "adding the vault's polkit policy at {}, so changes ask for your login password",
+                keys::polkit::POLICY_FILE
+            ));
+            root_write(
+                ctx,
+                keys::polkit::POLICY_FILE,
+                &keys::polkit::policy(USER),
+                "022",
+            )?;
+        }
+        if checked.info.get("passphrase") == Some(&Value::Bool(true)) {
+            return self.check(ctx);
         }
         ctx.runner
             .say("choose the vault passphrase; it is asked for every change to the vault");
