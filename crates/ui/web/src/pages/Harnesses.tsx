@@ -346,7 +346,7 @@ export default function Harnesses() {
           )}
           <ModelProviders />
           {tools.length > 0 && (
-            <Section title="Tools" count={tools.length}>
+            <Section title="Other tools" count={tools.length}>
               {tools.map(card)}
             </Section>
           )}
