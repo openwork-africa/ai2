@@ -456,7 +456,7 @@ enum Ready {
     Deleted(String),
     Token(Box<TokenRecord>, Zeroizing<String>, Zeroizing<String>),
     Revoked(String),
-    Sandbox(String, Endpoint),
+    Sandbox(String, Endpoint, bool),
     Removed(String),
 }
 
@@ -522,7 +522,7 @@ fn ready(vault: &Vault, steps: Vec<Step>) -> Result<Vec<Ready>, Failure> {
                     Ready::Token(Box::new(record), secret, revoke)
                 }
                 Step::RevokeToken { id } => Ready::Revoked(id),
-                Step::AddSandbox { name, endpoint } => Ready::Sandbox(name, endpoint),
+                Step::AddSandbox { name, endpoint } => Ready::Sandbox(name, endpoint, false),
                 Step::RemoveSandbox { name } => Ready::Removed(name),
             })
         })
@@ -618,10 +618,14 @@ fn change(
             dirty.tokens = true;
             Changed::Revoked(Revoked { revoked: id })
         }
-        Ready::Sandbox(name, endpoint) => {
+        Ready::Sandbox(name, endpoint, throwaway) => {
             let endpoint = vault.open_endpoint(&name, &endpoint).map_err(internal)?;
             opened.push(name.clone());
-            let sandbox = Sandbox { name, endpoint };
+            let sandbox = Sandbox {
+                name,
+                endpoint,
+                throwaway,
+            };
             store.sandboxes.push(sandbox.clone());
             dirty.sandboxes = true;
             Changed::Sandbox(SandboxOut { sandbox })
@@ -635,7 +639,19 @@ fn change(
 }
 
 fn apply(vault: &Arc<Vault>, steps: Vec<Step>) -> Result<Vec<Value>, Failure> {
-    let ready = ready(vault, steps)?;
+    let mut ready = ready(vault, steps)?;
+    let tokened: HashSet<String> = ready
+        .iter()
+        .filter_map(|item| match item {
+            Ready::Token(record, ..) => Some(record.sandbox.clone()),
+            _ => None,
+        })
+        .collect();
+    for item in &mut ready {
+        if let Ready::Sandbox(name, _, throwaway) = item {
+            *throwaway = tokened.contains(name.as_str());
+        }
+    }
     let removed: Vec<String> = ready
         .iter()
         .filter_map(|item| match item {

@@ -123,7 +123,7 @@ Any other MCP client: `{ "command": "ai2", "args": ["mcp"] }`.
 | `ai2 mcp` | MCP over stdio; `ai2 mcp openapi` prints the tools as an OpenAPI document |
 | `ai2 doctor [--json]` | checks the binary, versions, setup, sockets, sandboxes and the vetting model; `--json` prints `[{check, state, detail, fix}]` |
 
-`ai2 vault with <keys> -- <command>` runs a command with a pass for some keys, and takes the pass back when it exits.
+`ai2 vault with <keys> -- <command>` runs a command with a pass for some keys, and takes the pass back when it exits. A throwaway container run asks you once: the sandbox and the pass are made in one batch, and both are taken back without a second prompt. `ai2 vault migrate --take|--all` stores every chosen key with one prompt.
 `ai2 vault skill` prints the guide an agent reads to call the gateway.
 
 State is kept in `$AI2_HOME`, else `~/.ai2`.

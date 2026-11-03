@@ -87,17 +87,17 @@ fn on_path(program: &str) -> bool {
     })
 }
 
-enum Place {
+enum Planned {
     Named(String),
-    Throwaway { name: String, socket: PathBuf },
+    Fresh(String),
 }
 
-impl Place {
-    fn name(&self) -> &str {
-        match self {
-            Place::Named(name) | Place::Throwaway { name, .. } => name,
-        }
-    }
+enum Place {
+    Named(String),
+    Throwaway {
+        name: String,
+        socket: Result<PathBuf, String>,
+    },
 }
 
 struct Minted {
@@ -136,28 +136,37 @@ pub fn run_on(admin: &Admin, with: With, machine: &dyn Machine) -> i32 {
 
 fn placed(admin: &Admin, with: &With, machine: &dyn Machine) -> i32 {
     let held = admin.hold();
-    let place = match place(admin, with, machine) {
-        Ok(Ok(place)) => place,
+    let planned = match plan(admin, with, machine) {
+        Ok(Ok(planned)) => planned,
         Ok(Err(code)) => return code,
         Err(error) => return failed(error),
     };
-    let minted = mint(admin, with, place.name());
+    let minted = match &planned {
+        Planned::Named(name) => mint(admin, with, name)
+            .map(|minted| minted.map(|minted| (Place::Named(name.clone()), minted))),
+        Planned::Fresh(name) => mint_fresh(admin, with, name),
+    };
     drop(held);
-    let code = match minted {
-        Ok(Ok(minted)) => {
-            let ran =
-                interrupted().map_or_else(|| inside(with, machine, &place, &minted, admin), Ok);
+    match minted {
+        Ok(Ok((place, minted))) => {
+            let ran = match &place {
+                Place::Throwaway {
+                    socket: Err(error), ..
+                } => Err(anyhow!("{error}")),
+                _ => {
+                    interrupted().map_or_else(|| inside(with, machine, &place, &minted, admin), Ok)
+                }
+            };
+            if let Place::Throwaway { name, .. } = &place {
+                machine.quiet(Command::new("container").args(["delete", "--force", name]));
+                remove(admin, name, &minted.revoke);
+            }
             revoke(admin, &minted);
             ran.unwrap_or_else(failed)
         }
         Ok(Err(code)) => code,
         Err(error) => failed(error),
-    };
-    if let Place::Throwaway { name, .. } = &place {
-        machine.quiet(Command::new("container").args(["delete", "--force", name]));
-        remove(admin, name);
     }
-    code
 }
 
 fn interrupted() -> Option<i32> {
@@ -170,33 +179,15 @@ fn interrupted() -> Option<i32> {
     }
 }
 
-fn place(admin: &Admin, with: &With, machine: &dyn Machine) -> Result<Result<Place, i32>> {
+fn plan(admin: &Admin, with: &With, machine: &dyn Machine) -> Result<Result<Planned, i32>> {
     if let Some(name) = &with.sandbox {
-        return Ok(Ok(Place::Named(name.clone())));
+        return Ok(Ok(Planned::Named(name.clone())));
     }
     if !machine.containers() {
         say(crate::NOT_SAFE);
-        return Ok(host(admin)?.map(|()| Place::Named(HOST.into())));
+        return Ok(host(admin)?.map(|()| Planned::Named(HOST.into())));
     }
-    let name = format!("with-{}", random_id()?);
-    let (status, value) = admin.call("POST", "/sandboxes", Some(json!({ "name": name })), true)?;
-    if status != 200 {
-        say(value["message"]
-            .as_str()
-            .unwrap_or("the vault made no sandbox"));
-        return Ok(Err(code(status)));
-    }
-    let socket = value["sandbox"]["path"]
-        .as_str()
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("the sandbox {name} has no socket"));
-    match socket {
-        Ok(socket) => Ok(Ok(Place::Throwaway { name, socket })),
-        Err(error) => {
-            remove(admin, &name);
-            Err(error)
-        }
-    }
+    Ok(Ok(Planned::Fresh(format!("with-{}", random_id()?))))
 }
 
 fn host(admin: &Admin) -> Result<Result<(), i32>> {
@@ -220,8 +211,8 @@ fn random_id() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn mint(admin: &Admin, with: &With, sandbox: &str) -> Result<Result<Minted, i32>> {
-    let body = json!({
+fn token_body(with: &With, sandbox: &str) -> Value {
+    json!({
         "keys": with.keys,
         "sandbox": sandbox,
         "mode": with.mode,
@@ -229,15 +220,48 @@ fn mint(admin: &Admin, with: &With, sandbox: &str) -> Result<Result<Minted, i32>
         "url_prefixes": with.url_prefixes,
         "intent": with.intent,
         "ttl": with.ttl,
-    });
-    let (status, value) = admin.call("POST", "/tokens", Some(body), true)?;
-    warn(&value);
+    })
+}
+
+fn mint(admin: &Admin, with: &With, sandbox: &str) -> Result<Result<Minted, i32>> {
+    let (status, value) = admin.call("POST", "/tokens", Some(token_body(with, sandbox)), true)?;
     if status != 200 {
         say(value["message"]
             .as_str()
             .unwrap_or("the vault made no token"));
         return Ok(Err(code(status)));
     }
+    minted(with, sandbox, &value).map(Ok)
+}
+
+fn mint_fresh(admin: &Admin, with: &With, name: &str) -> Result<Result<(Place, Minted), i32>> {
+    let mut token = token_body(with, name);
+    token["action"] = json!("create_token");
+    let actions = json!([{ "action": "add_sandbox", "name": name }, token]);
+    let (status, value) =
+        admin.call("POST", "/batch", Some(json!({ "actions": actions })), true)?;
+    if status != 200 {
+        say(value["message"]
+            .as_str()
+            .unwrap_or("the vault made no sandbox and token"));
+        return Ok(Err(code(status)));
+    }
+    let made = minted(with, name, &value["results"][1])?;
+    let socket = value["results"][0]["sandbox"]["path"]
+        .as_str()
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("the sandbox {name} has no socket"));
+    Ok(Ok((
+        Place::Throwaway {
+            name: name.to_string(),
+            socket,
+        },
+        made,
+    )))
+}
+
+fn minted(with: &With, sandbox: &str, value: &Value) -> Result<Minted> {
+    warn(value);
     let text = |field: &str| {
         value[field]
             .as_str()
@@ -254,7 +278,7 @@ fn mint(admin: &Admin, with: &With, sandbox: &str) -> Result<Result<Minted, i32>
         minted.id,
         with.keys.join(", "),
     ));
-    Ok(Ok(minted))
+    Ok(minted)
 }
 
 fn sandboxes(admin: &Admin) -> Result<Vec<Value>> {
@@ -288,6 +312,7 @@ fn inside(
     let (mut command, mut stop) = match place {
         Place::Named(name) => (on_host(with, &endpoint(admin, name)?), None),
         Place::Throwaway { name, socket } => {
+            let socket = socket.as_ref().map_err(|error| anyhow!("{error}"))?;
             let folder = machine.folder()?;
             say(&format!(
                 "running in a fresh {} container {name}, with {} at {WORK}",
@@ -396,12 +421,13 @@ fn revoke(admin: &Admin, minted: &Minted) {
     }
 }
 
-fn remove(admin: &Admin, name: &str) {
-    let removed = admin.call(
+fn remove(admin: &Admin, name: &str, revoke: &str) {
+    let removed = admin.call_with(
         "DELETE",
         &format!("/sandboxes/{}", encode_percent(name)),
         None,
         true,
+        &[("X-Vault-Revoke", revoke)],
     );
     let why = match removed {
         Ok((200, _)) => return say(&format!("removed the sandbox {name}")),
@@ -409,7 +435,7 @@ fn remove(admin: &Admin, name: &str) {
         Err(error) => format!("{error:#}"),
     };
     say(&format!(
-        "could not remove the sandbox {name}: {why}; its token is revoked, remove it with ai2 vault sandbox remove --name {name}"
+        "could not remove the sandbox {name}: {why}; remove it with ai2 vault sandbox remove --name {name}"
     ));
 }
 
@@ -566,7 +592,9 @@ mod tests {
             answer: 5,
             ..Fake::default()
         };
+        let before = daemon.prompts();
         assert_eq!(run_on(&admin, with(None, &["sh", "-c", "x"]), &fake), 5);
+        assert_eq!(daemon.prompts() - before, 1);
         let ran = fake.ran.borrow();
         assert_eq!(ran.len(), 1);
         assert_eq!(ran[0].program, "container");
@@ -638,7 +666,9 @@ mod tests {
                 .0,
             200
         );
+        let before = daemon.prompts();
         assert_eq!(run_on(&admin, with(Some("box"), &["true"]), &fake), 0);
+        assert_eq!(daemon.prompts() - before, 1);
         assert_eq!(fake.ran.borrow()[0].program, "true");
         assert_eq!(sandboxes(&daemon), ["box"]);
         assert_eq!(tokens(&daemon), 0);

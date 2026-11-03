@@ -112,6 +112,8 @@ pub struct Sandbox {
     pub name: String,
     #[serde(flatten)]
     pub endpoint: Endpoint,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub throwaway: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
