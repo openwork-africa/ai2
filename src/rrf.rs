@@ -132,7 +132,7 @@ fn make_private_dir(dir: &Path) -> Result<()> {
 pub struct Rrf {
     reviewers: Vec<Reviewer>,
     chosen: Option<Reviewer>,
-    scratch: Option<PathBuf>,
+    scratch: Option<tempfile::TempDir>,
     providers: Option<PathBuf>,
     model_name: Option<String>,
     limit: Duration,
@@ -186,9 +186,7 @@ impl Step for Rrf {
         Ok(())
     }
     fn cleanup(&mut self) {
-        if let Some(dir) = self.scratch.take() {
-            let _ = std::fs::remove_dir_all(dir);
-        }
+        self.scratch.take();
     }
     fn rate(&self, ctx: &Context, found: &Found) -> Result<Rated> {
         let Some(reviewer) = self.chosen else {
@@ -211,9 +209,10 @@ impl Step for Rrf {
         let task = serde_json::json!({ "objective": ctx.objective, "changed": ctx.changed, "technologies": technologies, "exploits": found.exploits });
         let work = self
             .scratch
-            .clone()
+            .as_ref()
+            .map(tempfile::TempDir::path)
             .ok_or_else(|| anyhow!("the reviewer scratch was not provisioned"))?;
-        let (rating, findings) = rrf(reviewer, self, ctx, &task, &work)?;
+        let (rating, findings) = rrf(reviewer, self, ctx, &task, work)?;
         Ok(Rated {
             rating: Some(rating),
             findings,
@@ -406,13 +405,12 @@ pub fn on_path(name: &str) -> bool {
         .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
 }
 
-fn scratch() -> Result<PathBuf> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("ai2-{}-{nanos}", std::process::id()));
-    make_private_dir(&dir)?;
-    Ok(dir)
+fn scratch() -> Result<tempfile::TempDir> {
+    use std::os::unix::fs::PermissionsExt;
+    Ok(tempfile::Builder::new()
+        .prefix("ai2-")
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir()?)
 }
 
 #[cfg(test)]
@@ -551,7 +549,8 @@ mod tests {
 
     #[test]
     fn cleanup_removes_the_scratch_after_an_error() {
-        let dir = scratch().unwrap();
+        let scratch_dir = scratch().unwrap();
+        let dir = scratch_dir.path().to_path_buf();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -561,7 +560,7 @@ mod tests {
             );
         }
         let mut step = Rrf {
-            scratch: Some(dir.clone()),
+            scratch: Some(scratch_dir),
             ..Rrf::default()
         };
         step.cleanup();
