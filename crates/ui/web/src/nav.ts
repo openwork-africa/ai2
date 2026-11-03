@@ -1,4 +1,4 @@
-import { Bot, KeyRound, LayoutGrid, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Bot, BotMessageSquare, KeyRound, LayoutGrid, ShieldCheck, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { VaultNavBadge } from "@/pages/vault/NavBadge";
 
@@ -15,6 +15,7 @@ const under = (prefix: string) => (path: string) => path === prefix || path.star
 
 export const NAV: NavEntry[] = [
   { to: "/", label: "Apps", icon: LayoutGrid, feature: "apps", match: (path) => path === "/" || under("/apps")(path) },
+  { to: "/agents", label: "Agents", icon: BotMessageSquare, feature: "agents", match: (path) => under("/agents")(path) || under("/runs")(path) },
   { to: "/reviews", label: "Security", icon: ShieldCheck, feature: "reviews", match: under("/reviews") },
   { to: "/vault", label: "Vault", icon: KeyRound, feature: "vault", match: under("/vault"), badge: VaultNavBadge },
   { to: "/harnesses", label: "Tools", icon: Bot, feature: "harness", match: under("/harnesses") },
