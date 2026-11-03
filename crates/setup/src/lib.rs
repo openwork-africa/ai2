@@ -182,12 +182,45 @@ pub fn command() -> clap::Command {
                 .action(clap::ArgAction::SetTrue)
                 .help("Only report each step's state; change nothing"),
         )
+        .arg(
+            clap::Arg::new("headless")
+                .long("headless")
+                .action(clap::ArgAction::SetTrue)
+                .help("Run in this terminal and print one JSON object, without the web page"),
+        )
+}
+
+pub const NO_UI: &str =
+    "ai2 setup: this build has no web page for setup, so it runs here in the terminal, as with --headless";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Done(bool),
+    Ui { check: bool },
+}
+
+pub fn outcome(matches: &clap::ArgMatches, opts: &Options) -> Result<Outcome> {
+    let check = matches.get_flag("check");
+    if !matches.get_flag("headless") {
+        return Ok(Outcome::Ui { check });
+    }
+    headless(opts, check).map(Outcome::Done)
+}
+
+pub fn headless(opts: &Options, check_only: bool) -> Result<bool> {
+    let (ok, report) = setup(opts, check_only)?;
+    println!("{}", serde_json::to_string(&report)?);
+    Ok(ok)
 }
 
 pub fn run(matches: &clap::ArgMatches, opts: &Options) -> Result<bool> {
-    let (ok, report) = setup(opts, matches.get_flag("check"))?;
-    println!("{}", serde_json::to_string(&report)?);
-    Ok(ok)
+    match outcome(matches, opts)? {
+        Outcome::Done(ok) => Ok(ok),
+        Outcome::Ui { check } => {
+            eprintln!("{NO_UI}");
+            headless(opts, check)
+        }
+    }
 }
 
 pub fn setup(opts: &Options, check_only: bool) -> Result<(bool, Value)> {

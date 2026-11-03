@@ -459,7 +459,22 @@ fn the_setup_command_takes_check() {
         .try_get_matches_from(["setup", "--check"])
         .unwrap();
     assert!(matches.get_flag("check"));
+    assert!(!matches.get_flag("headless"));
     assert_eq!(crate::command().get_name(), "setup");
+    let matches = crate::command()
+        .try_get_matches_from(["setup", "--headless", "--check"])
+        .unwrap();
+    assert!(matches.get_flag("headless") && matches.get_flag("check"));
+}
+
+#[test]
+fn without_headless_setup_asks_the_caller_for_the_page_and_runs_nothing() {
+    use crate::{outcome, Outcome};
+    let options = Options::new("/nowhere/ai2", "/nowhere/.ai2");
+    for (args, check) in [(&["setup"][..], false), (&["setup", "--check"][..], true)] {
+        let matches = crate::command().try_get_matches_from(args).unwrap();
+        assert_eq!(outcome(&matches, &options).unwrap(), Outcome::Ui { check });
+    }
 }
 
 #[test]
@@ -610,7 +625,7 @@ fn the_host_is_described_for_the_page() {
 fn this_machine_checks_without_changing_anything() {
     let options = Options::new("/usr/local/bin/ai2", "/tmp/ai2-setup-check");
     let matches = crate::command()
-        .try_get_matches_from(["setup", "--check"])
+        .try_get_matches_from(["setup", "--headless", "--check"])
         .unwrap();
     crate::run(&matches, &options).unwrap();
 }
