@@ -265,7 +265,9 @@ impl Follow {
     }
 }
 
-pub struct FolderLock(std::fs::File);
+pub struct FolderLock {
+    _file: std::fs::File,
+}
 
 impl FolderLock {
     pub fn take(
@@ -289,7 +291,7 @@ impl FolderLock {
                 anyhow::bail!("could not wait for {}", folder.display());
             }
         }
-        Ok(FolderLock(file))
+        Ok(FolderLock { _file: file })
     }
 }
 
