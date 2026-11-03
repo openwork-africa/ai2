@@ -2980,9 +2980,11 @@ dependencies = [
  "futures-util",
  "harness",
  "include_dir",
+ "keys",
  "mime_guess",
  "serde",
  "serde_json",
+ "setup",
  "tempfile",
  "tokio",
  "tower",
@@ -2990,6 +2992,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "vault",
+ "zeroize",
 ]
 
 [[package]]

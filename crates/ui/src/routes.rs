@@ -19,6 +19,7 @@ pub fn api() -> OpenApiRouter<Shared> {
     OpenApiRouter::new()
         .merge(status::routes())
         .merge(vault::routes())
+        .merge(crate::setup::routes())
         .merge(harnesses::routes())
         .merge(reviews::routes())
 }
