@@ -148,7 +148,7 @@ fn checked_secret(secret: &str) -> Result<(), Failure> {
 }
 
 fn check(vault: &Vault, action: Action) -> Result<Step, Failure> {
-    let http = vault.config.allow_http;
+    let http = vault.config.http_prefixes;
     match action {
         Action::PutKey(NamedKey { name, key }) => {
             checked_name(&name)?;

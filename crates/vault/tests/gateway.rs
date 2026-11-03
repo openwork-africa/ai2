@@ -144,12 +144,14 @@ fn start_owned(present: bool, vetter: Box<dyn Vetter>, owners: Option<Vec<u32>>)
 }
 
 fn start_with(present: bool, vetter: Box<dyn Vetter>, tweak: impl FnOnce(&mut Config)) -> Test {
+    let upstream = upstream();
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().join("v");
     let admin = state.join("admin.sock");
     let mut config = Config::new(state.clone(), admin.clone());
     config.sockets = dir.path().join("s");
-    config.allow_http = true;
+    config.http_prefixes = true;
+    config.plain_http = vec![upstream.base.trim_start_matches("http://").to_string()];
     config.approval_timeout = Duration::from_millis(400);
     config.throttle = Duration::ZERO;
     tweak(&mut config);
@@ -168,7 +170,7 @@ fn start_with(present: bool, vetter: Box<dyn Vetter>, tweak: impl FnOnce(&mut Co
         running: Some(running),
         admin,
         state,
-        upstream: upstream(),
+        upstream,
     }
 }
 

@@ -30,7 +30,9 @@ pub struct Config {
     pub admin_mode: u32,
     pub sockets: PathBuf,
     pub socket_mode: u32,
-    pub allow_http: bool,
+    pub admin_dir_mode: u32,
+    pub http_prefixes: bool,
+    pub plain_http: Vec<String>,
     pub approval_timeout: Duration,
     pub owners: Vec<u32>,
     pub throttle: Duration,
@@ -53,7 +55,13 @@ impl Config {
             } else {
                 0o600
             },
-            allow_http: false,
+            admin_dir_mode: if cfg!(target_os = "linux") {
+                0o755
+            } else {
+                0o700
+            },
+            http_prefixes: false,
+            plain_http: Vec::new(),
             approval_timeout: Duration::from_secs(120),
             owners: vec![unsafe { libc::geteuid() }],
             throttle: guard::BASE,
@@ -113,7 +121,7 @@ pub fn start(
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .max_redirects(0)
-        .https_only(!config.allow_http)
+        .https_only(config.plain_http.is_empty())
         .timeout_connect(Some(Duration::from_secs(30)))
         .timeout_recv_response(Some(Duration::from_secs(300)))
         .build()
@@ -138,7 +146,7 @@ pub fn start(
             .secret(name)
     });
     let _ = vault.vetter.set(make(resolver));
-    let admin = bind_unix(&vault.config.admin, vault.config.admin_mode)?;
+    let admin = bind_admin(&vault.config)?;
     vault.listen(ADMIN, Bound::Unix(admin, vault.config.admin.clone()));
     let sandboxes = vault.store().sandboxes.clone();
     for sandbox in sandboxes {
@@ -479,6 +487,23 @@ fn make_dirs(dir: &Path, mode: u32) -> Result<()> {
         .with_context(|| format!("securing {}", dir.display()))
 }
 
+fn bind_admin(config: &Config) -> Result<UnixListener> {
+    if let Some(parent) = config.admin.parent() {
+        make_dirs(parent, config.admin_dir_mode)?;
+        let ours = std::fs::metadata(parent).is_ok_and(|meta| {
+            std::os::unix::fs::MetadataExt::uid(&meta) == unsafe { libc::geteuid() }
+        });
+        if ours {
+            std::fs::set_permissions(
+                parent,
+                std::fs::Permissions::from_mode(config.admin_dir_mode),
+            )
+            .with_context(|| format!("opening {} to the admin group", parent.display()))?;
+        }
+    }
+    bind_unix(&config.admin, config.admin_mode)
+}
+
 pub fn bind_unix(path: &Path, mode: u32) -> Result<UnixListener> {
     if let Some(parent) = path.parent() {
         make_dirs(parent, dir_mode(mode))?;
@@ -525,6 +550,30 @@ mod tests {
         assert_eq!(mode(&path), 0o600);
         assert_eq!(mode(&dir.path().join("a")), 0o700);
         assert_eq!(mode(&dir.path().join("a").join("b")), 0o700);
+    }
+
+    #[test]
+    fn a_hand_started_daemon_opens_its_runtime_folder_like_the_unit_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = dir.path().join("run").join("ai2-vault");
+        let mut config = Config::new(dir.path().join("state"), run.join("admin.sock"));
+        config.admin_dir_mode = 0o755;
+        config.admin_mode = 0o660;
+        let _listener = bind_admin(&config).unwrap();
+        assert_eq!(mode(&run), 0o755);
+        assert_eq!(mode(&run.join("admin.sock")), 0o660);
+        std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700)).unwrap();
+        drop(_listener);
+        let _again = bind_admin(&config).unwrap();
+        assert_eq!(mode(&run), 0o755);
+        let made = Config::new("/s".into(), "/s/admin.sock".into());
+        let expected = if cfg!(target_os = "linux") {
+            0o755
+        } else {
+            0o700
+        };
+        assert_eq!(made.admin_dir_mode, expected);
+        assert!(!made.http_prefixes && made.plain_http.is_empty());
     }
 
     #[test]

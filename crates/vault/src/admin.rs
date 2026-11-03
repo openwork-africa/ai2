@@ -279,7 +279,7 @@ fn propose(vault: &Vault, name: &str, request: &Request) -> Reply {
         .map_err(|e| fail(503, "vetting_unavailable", format!("{e:#}")))?;
     let prefixes: Vec<String> = proposed
         .into_iter()
-        .filter(|p| policy::parse(p, vault.config.allow_http).is_ok())
+        .filter(|p| policy::parse(p, vault.config.http_prefixes).is_ok())
         .collect();
     Ok(json!({ "name": name, "approved_urls": prefixes }))
 }
