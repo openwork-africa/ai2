@@ -2,6 +2,7 @@ import { cn } from "cn";
 import { Bot, Download, LogIn, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { HarnessJob } from "@/components/harness-job";
+import { ModelProviders } from "@/components/providers";
 import { Code, Dot, Page, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,9 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { type JobView, useHarnessJobs } from "@/hooks/use-harness-jobs";
+import { useVaultStatus } from "@/hooks/use-vault";
 import { type Action, type Harness, type HarnessState, listHarnesses, stateOf } from "@/lib/harnesses";
+import { Presence } from "@/pages/vault/Presence";
 
 const STATE: Record<HarnessState, { tone: "success" | "warning" | "muted"; label: string }> = {
   ready: { tone: "success", label: "Ready" },
@@ -262,6 +265,7 @@ export default function Harnesses() {
   );
 
   const { jobs, follow, start, answer, dismiss } = useHarnessJobs(() => void load());
+  useVaultStatus();
 
   useEffect(() => {
     void load().then((listed) => {
@@ -340,6 +344,7 @@ export default function Harnesses() {
               {agents.map(card)}
             </Section>
           )}
+          <ModelProviders />
           {tools.length > 0 && (
             <Section title="Tools" count={tools.length}>
               {tools.map(card)}
@@ -347,6 +352,7 @@ export default function Harnesses() {
           )}
         </div>
       )}
+      <Presence />
     </Page>
   );
 }

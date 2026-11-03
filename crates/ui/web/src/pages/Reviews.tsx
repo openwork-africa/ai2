@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router";
 import { Code, Page, PageHeader } from "@/components/page";
 import { ScorePill } from "@/components/review";
 import { StartReview } from "@/components/review-start";
+import { SettingsCog } from "@/components/settings-cog";
 import { Card } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -74,7 +75,12 @@ export default function Reviews() {
       <PageHeader
         title="Security"
         description="Every agent run checked on this machine, with a safety score for each."
-        actions={list?.can_start && <StartReview onDone={load} />}
+        actions={
+          <>
+            <SettingsCog page="security" />
+            {list?.can_start && <StartReview onDone={load} />}
+          </>
+        }
       />
       {error && !list && (
         <Empty className="rounded-3xl border border-dashed py-16">
