@@ -1,0 +1,23 @@
+[package]
+name = "keys"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "The vault's master key and the check that a human is present"
+
+[dependencies]
+anyhow.workspace = true
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash", "std"] }
+getrandom = "0.3"
+libc.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "block2", "LAContext", "LAError"] }
+security-framework = "3"
+
+[dev-dependencies]
+tempfile.workspace = true

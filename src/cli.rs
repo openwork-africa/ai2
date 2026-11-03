@@ -2,7 +2,7 @@ use crate::harness::Rrf;
 use crate::report::{self, Card, Review};
 use crate::step::{Context, Found, Step};
 use crate::steps::{self, Msr};
-use crate::{model, scan, sources};
+use crate::{model, scan};
 use anyhow::{bail, Context as _, Result};
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand as _};
 use harness::cli::{print, Context as HarnessContext, HarnessCommand};
@@ -30,7 +30,7 @@ impl Build {
 
 pub trait Subcommand {
     fn command(&self) -> clap::Command;
-    fn run(&self, matches: &ArgMatches) -> Result<bool>;
+    fn run(&self, matches: &ArgMatches) -> Result<ExitCode>;
 }
 
 pub struct HarnessSubcommand {
@@ -46,8 +46,8 @@ impl Subcommand for HarnessSubcommand {
     fn command(&self) -> clap::Command {
         harness_command()
     }
-    fn run(&self, matches: &ArgMatches) -> Result<bool> {
-        run_harness(self.registry.clone_for_run(), self.state.clone(), matches)
+    fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
+        run_harness(self.registry.clone_for_run(), self.state.clone(), matches).map(exit_code)
     }
 }
 
@@ -160,14 +160,21 @@ fn ordered(mut steps: Vec<Box<dyn Step>>) -> Result<Vec<Box<dyn Step>>> {
     Ok(done)
 }
 
+pub fn exit_code(ok: bool) -> ExitCode {
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
 fn dispatch(subcommands: &[Box<dyn Subcommand>], name: &str, matches: &ArgMatches) -> ExitCode {
     let Some(sub) = subcommands.iter().find(|s| s.command().get_name() == name) else {
         print(&serde_json::json!({ "error": format!("unknown subcommand {name}") }));
         return ExitCode::FAILURE;
     };
     match sub.run(matches) {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::FAILURE,
+        Ok(code) => code,
         Err(error) => {
             print(&serde_json::json!({ "error": error.to_string() }));
             ExitCode::FAILURE
@@ -195,7 +202,21 @@ fn execute(
     for sub in &subcommands {
         command = command.subcommand(sub.command());
     }
-    let args = command.args_conflicts_with_subcommands(true).get_matches();
+    let args = match command
+        .args_conflicts_with_subcommands(true)
+        .try_get_matches()
+    {
+        Ok(args) => args,
+        Err(error) => {
+            let vault_usage =
+                error.use_stderr() && std::env::args().nth(1).as_deref() == Some("vault");
+            let _ = error.print();
+            return Ok(match (vault_usage, error.exit_code()) {
+                (true, _) => ExitCode::from(vault::exit::USAGE as u8),
+                (false, code) => ExitCode::from(code as u8),
+            });
+        }
+    };
     if let Some((name, matches)) = args.subcommand() {
         let name = name.to_string();
         return Ok(dispatch(&subcommands, &name, matches));
@@ -206,16 +227,7 @@ fn execute(
         .canonicalize()
         .with_context(|| format!("{} is not a folder", cli.run_path.display()))?;
     let mut notes = Vec::new();
-    let env_name = format!("{}_PROVIDERS", build.name.to_uppercase().replace('-', "_"));
-    let providers = cli
-        .providers
-        .clone()
-        .or_else(|| std::env::var_os(&env_name).map(PathBuf::from))
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join(format!(".{}/providers.json", build.name)))
-                .filter(|p| p.is_file())
-        });
+    let providers = providers_file(build.name, cli.providers.clone());
     let model = providers
         .as_deref()
         .map(|file| model::Model::load(file, cli.model.as_deref()))
@@ -363,7 +375,7 @@ fn make_review(
     Review {
         version: build.version,
         folder: folder.display().to_string(),
-        generated_at: sources::now(),
+        generated_at: vault::time::stamp(),
         harness,
         technologies: steps::technologies(&ctx.spec, &risks),
         ratings: ratings.to_vec(),
@@ -419,6 +431,22 @@ pub fn run_harness(registry: Registry, state: PathBuf, matches: &ArgMatches) -> 
     .run(command)
 }
 
+pub fn providers_file(name: &str, given: Option<PathBuf>) -> Option<PathBuf> {
+    given
+        .or_else(|| {
+            std::env::var_os(format!(
+                "{}_PROVIDERS",
+                name.to_uppercase().replace('-', "_")
+            ))
+            .map(PathBuf::from)
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| PathBuf::from(home).join(format!(".{name}/providers.json")))
+                .filter(|p| p.is_file())
+        })
+}
+
 pub fn state_dir(name: &str) -> PathBuf {
     std::env::var_os(format!("{}_HOME", name.to_uppercase()))
         .map(PathBuf::from)
@@ -457,7 +485,7 @@ mod tests {
         fn command(&self) -> clap::Command {
             clap::Command::new("fail")
         }
-        fn run(&self, _matches: &ArgMatches) -> Result<bool> {
+        fn run(&self, _matches: &ArgMatches) -> Result<ExitCode> {
             anyhow::bail!("nope")
         }
     }

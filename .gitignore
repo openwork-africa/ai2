@@ -1,2 +1,6 @@
 target/
 .ai2/
+.claude/
+node_modules/
+.DS_Store
+*.log

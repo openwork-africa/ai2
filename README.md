@@ -161,6 +161,12 @@ Implement `ai2::Subcommand` (`command()` returns its `clap::Command`, `run(match
 
 Pass your own identity: `ai2::run_with(steps, subcommands, ai2::Build { name: "mine", version: env!("CARGO_PKG_VERSION") })`. The build name and version drive `--version`, `review.json`'s `version`, the stderr prefix, the default output folder, the default providers path (`~/.<name>/providers.json`) and the providers env var (`<NAME>_PROVIDERS`). Ship releases as `<name>-<target>.tar.gz` plus a `SHA256SUMS` file in the same release, with the binary, `LICENSE`, `NOTICE` and `README.md` in the tarball.
 
+## Roadmap
+
+- **Feedback**: where you note what you have learned that should be repeated and applied, and how to work on another thing or on the base development architecture.
+- **Planning skill**.
+- **Threat-model table**: each threat and whether it is covered, partly covered or not covered, to be discussed before it is written.
+
 ## License
 
 Apache-2.0 (`LICENSE`). The skills in `skills/` are under the MIT License, each with its own `LICENSE`; `NOTICE` lists them and their sources.

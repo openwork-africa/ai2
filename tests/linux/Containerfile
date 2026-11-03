@@ -1,0 +1,21 @@
+FROM debian:trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv dbus sudo expect curl ca-certificates \
+      build-essential pkg-config git procps iproute2 \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo PATH=/opt/rust/cargo/bin:$PATH
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable -c clippy,rustfmt \
+ && chmod -R a+rwX /opt/rust
+
+RUN useradd --create-home --shell /bin/bash dev \
+ && useradd --create-home --shell /bin/bash eve \
+ && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev \
+ && chmod 0440 /etc/sudoers.d/dev \
+ && systemctl mask getty@tty1.service serial-getty@.service console-getty.service systemd-firstboot.service systemd-networkd-wait-online.service
+
+STOPSIGNAL SIGRTMIN+3
+ENTRYPOINT ["/bin/sh", "-c", "mount --make-rshared / && exec /sbin/init"]

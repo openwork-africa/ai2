@@ -36,6 +36,7 @@ pub struct Card {
 pub fn html(review: &Review) -> String {
     let mut page = String::new();
     let _ = write!(page, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>ai2 security review</title><style>{STYLE}</style></head><body><main>");
+    page.push_str(TABS);
     let _ = write!(
         page,
         "<header><h1>Security review</h1><p>{} · {}</p>",
@@ -157,6 +158,8 @@ pub fn html(review: &Review) -> String {
         }
         page.push_str("</ul></section>");
     }
+    page.push_str("</div>");
+    page.push_str(VAULT);
     page.push_str("</main></body></html>\n");
     page
 }
@@ -207,6 +210,10 @@ fn esc(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+const TABS: &str = "<input type=\"radio\" name=\"tab\" id=\"tab-review\" class=\"tab\" checked><input type=\"radio\" name=\"tab\" id=\"tab-vault\" class=\"tab\"><nav class=\"tabs\"><label for=\"tab-review\">Review</label><label for=\"tab-vault\">Vault</label></nav><div class=\"review-panel\">";
+
+const VAULT: &str = "<section id=\"vault\" class=\"vault-panel\"><h1>Vault</h1><p class=\"missing\">This report was opened as a file. Run <code>ai2 vault ui</code> to see and manage the vault here: keys, tokens, sandboxes, approvals and the audit log.</p></section>";
+
 const STYLE: &str = r#"
 :root{--bg:#fafaf9;--card:#fff;--text:#1c1917;--muted:#78716c;--line:#e7e5e4;--good:#15803d;--fair:#b45309;--poor:#b91c1c;--accent:#2563eb}
 @media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--card:#1c1917;--text:#f5f5f4;--muted:#a8a29e;--line:#292524;--good:#4ade80;--fair:#fbbf24;--poor:#f87171;--accent:#60a5fa}}
@@ -223,5 +230,11 @@ tbody tr:last-child td{border-bottom:0}
 @media (max-width:640px){thead{display:none}table,tbody,tr,td{display:block;width:100%}tr{padding:8px 0;border-bottom:1px solid var(--line)}tbody tr:last-child{border-bottom:0}td{border:0;padding:4px 12px;overflow-wrap:anywhere}td::before{content:attr(data-label);display:block;color:var(--muted);font-size:12px}}
 th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500}
 .bar{display:inline-block;width:80px;height:6px;border-radius:3px;margin-right:8px;background:linear-gradient(90deg,var(--accent) var(--w),var(--line) var(--w))}
+.tab{position:absolute;opacity:0;pointer-events:none}
+.tabs{display:flex;gap:4px;margin:-8px 0 24px;border-bottom:1px solid var(--line)}.tabs label{padding:8px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+#tab-review:checked~.tabs label[for=tab-review],#tab-vault:checked~.tabs label[for=tab-vault]{color:var(--text);border-bottom-color:var(--accent)}
+#tab-review:focus-visible~.tabs label[for=tab-review],#tab-vault:focus-visible~.tabs label[for=tab-vault]{outline:2px solid var(--accent)}
+#tab-review:checked~.vault-panel,#tab-vault:checked~.review-panel{display:none}
+code{font-family:ui-monospace,monospace;font-size:13px;background:var(--line);border-radius:4px;padding:1px 4px}
 .items{padding-left:20px}.items li{margin-bottom:12px}.items p{margin:2px 0}.item{font-weight:600;font-size:13px}
 "#;

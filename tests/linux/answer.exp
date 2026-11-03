@@ -1,0 +1,12 @@
+set timeout 200
+log_user 1
+spawn -noecho {*}$argv
+expect {
+    -re {(passphrase|same again|Passphrase): $} {
+        send -- "$env(PASS)\r"
+        exp_continue
+    }
+    eof
+}
+lassign [wait] pid spawnid os_error code
+exit $code

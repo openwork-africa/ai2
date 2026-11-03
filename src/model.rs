@@ -38,11 +38,14 @@ struct ModelEntry {
     max_tokens: Option<u64>,
 }
 
+pub type KeyResolver = std::sync::Arc<dyn Fn(&str) -> Result<String> + Send + Sync>;
+
 pub struct Model {
     provider_name: String,
     provider: Provider,
     id: String,
     max_tokens: u64,
+    vault: Option<KeyResolver>,
 }
 
 pub struct Asking {
@@ -97,7 +100,21 @@ impl Model {
             provider: provider.clone(),
             id,
             max_tokens,
+            vault: None,
         })
+    }
+
+    pub fn with_vault(mut self, vault: KeyResolver) -> Model {
+        self.vault = Some(vault);
+        self
+    }
+
+    fn key(&self, value: &str) -> Result<String> {
+        match (value.strip_prefix("vault:"), &self.vault) {
+            (Some(name), Some(vault)) => vault(name),
+            (Some(name), None) => bail!("the key vault:{name} can only be read inside the vault"),
+            (None, _) => resolve(value),
+        }
     }
 
     pub fn name(&self) -> String {
@@ -124,7 +141,7 @@ impl Model {
 
     pub fn text(&self, system: &str, input: &str, asking: &Asking) -> Result<String> {
         let p = &self.provider;
-        let key = p.api_key.as_deref().map(resolve).transpose()?;
+        let key = p.api_key.as_deref().map(|v| self.key(v)).transpose()?;
         let base = p.base_url.trim_end_matches('/');
         let max_tokens = asking.max_tokens.unwrap_or(self.max_tokens);
         let (url, mut body) = match p.api.as_str() {
