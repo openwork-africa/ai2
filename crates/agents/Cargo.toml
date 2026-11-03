@@ -12,6 +12,7 @@ schema = ["dep:schemars", "dep:utoipa"]
 anyhow.workspace = true
 clap.workspace = true
 harness = { path = "../harness" }
+libc.workspace = true
 regex.workspace = true
 schemars = { version = "1", optional = true }
 serde.workspace = true

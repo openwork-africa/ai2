@@ -55,6 +55,9 @@ pub enum Stream {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema, utoipa::ToSchema))]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum RunEvent {
+    Waiting {
+        folder: String,
+    },
     Started {
         run: Run,
     },
@@ -83,6 +86,7 @@ pub enum RunEvent {
 impl RunEvent {
     pub fn name(&self) -> &'static str {
         match self {
+            RunEvent::Waiting { .. } => "waiting",
             RunEvent::Started { .. } => "started",
             RunEvent::Line { .. } => "line",
             RunEvent::Exited { .. } => "exited",
@@ -94,6 +98,9 @@ impl RunEvent {
 
     pub fn said(&self) -> String {
         match self {
+            RunEvent::Waiting { folder } => {
+                format!("Another run is working in {folder}; this one starts when it ends.")
+            }
             RunEvent::Started { run } => format!("{} started in {}", run.harness, run.folder),
             RunEvent::Line { text, .. } | RunEvent::Review { text } => text.clone(),
             RunEvent::Exited {
@@ -256,4 +263,38 @@ impl Follow {
     pub fn done(&self) -> bool {
         self.done
     }
+}
+
+pub struct FolderLock(std::fs::File);
+
+impl FolderLock {
+    pub fn take(
+        root: &Path,
+        folder: &Path,
+        waiting: &mut dyn FnMut(),
+    ) -> anyhow::Result<FolderLock> {
+        use std::os::fd::AsRawFd;
+        let locks = root.join("locks");
+        std::fs::create_dir_all(&locks)?;
+        let name = format!("{:016x}.lock", fnv(folder.to_string_lossy().as_bytes()));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(locks.join(name))?;
+        let fd = file.as_raw_fd();
+        if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            waiting();
+            if unsafe { libc::flock(fd, libc::LOCK_EX) } != 0 {
+                anyhow::bail!("could not wait for {}", folder.display());
+            }
+        }
+        Ok(FolderLock(file))
+    }
+}
+
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    })
 }

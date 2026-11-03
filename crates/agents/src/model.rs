@@ -70,6 +70,8 @@ pub struct RunAsk {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     pub prompt: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_review: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

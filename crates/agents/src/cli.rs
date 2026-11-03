@@ -59,6 +59,8 @@ struct RunCommand {
     personality: Option<String>,
     #[arg(long, help = "The folder it works in [default: the agent's]")]
     folder: Option<String>,
+    #[arg(long, help = "Skip the security review after the run")]
+    no_review: bool,
     prompt: String,
 }
 
@@ -113,6 +115,7 @@ pub fn start(matches: &ArgMatches, agents: &Agents) -> anyhow::Result<ExitCode> 
         personality: command.personality,
         folder: command.folder,
         prompt: command.prompt,
+        no_review: command.no_review,
     };
     Ok(ended(
         agents

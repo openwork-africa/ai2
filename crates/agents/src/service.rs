@@ -13,7 +13,7 @@ use crate::definition::{clean_harness, define, folder, Agent, NewAgent};
 use crate::enhance::{enhance, is_short_seed, Outcome, Personality};
 use crate::error::{Problem, Result};
 use crate::model::{Enhanced, Finished, RunAsk};
-use crate::runs::{new_id, Run, RunEvent, RunState, Runs, Stream};
+use crate::runs::{new_id, FolderLock, Run, RunEvent, RunState, Runs, Stream};
 use crate::store::{AgentStore, LocalStore};
 use crate::time::stamp;
 
@@ -40,6 +40,7 @@ pub struct Prepared {
     run: Run,
     line: String,
     folder: PathBuf,
+    review: bool,
 }
 
 impl Prepared {
@@ -253,13 +254,19 @@ impl Agents {
             error: None,
         };
         self.runs.save(&run)?;
-        Ok(Prepared { run, line, folder })
+        Ok(Prepared {
+            run,
+            line,
+            folder,
+            review: !ask.no_review,
+        })
     }
 
     pub fn execute(&self, prepared: Prepared, emit: &mut dyn FnMut(&RunEvent)) -> Result<Finished> {
         let Prepared {
             mut run,
             line,
+            review: reviewing,
             folder,
         } = prepared;
         let runs = self.runs.clone();
@@ -268,6 +275,11 @@ impl Agents {
             let _ = runs.append(&id, &event);
             emit(&event);
         };
+        let _folder = FolderLock::take(self.runs.root(), &folder, &mut || {
+            send(RunEvent::Waiting {
+                folder: folder.display().to_string(),
+            })
+        })?;
         send(RunEvent::Started { run: run.clone() });
         match self.harness(&line, &folder, Path::new(&run.log), &mut send) {
             Ok(exit) => run.exit = exit,
@@ -279,7 +291,7 @@ impl Agents {
             error: run.error.clone(),
         });
         let mut review = None;
-        if let Some(reviewer) = &self.review {
+        if let Some(reviewer) = self.review.as_ref().filter(|_| reviewing) {
             run.state = RunState::Reviewing;
             self.runs.save(&run)?;
             let reviewed = reviewer.review(&folder, &run.prompt, &mut |text| {

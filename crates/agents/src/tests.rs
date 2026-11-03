@@ -407,3 +407,61 @@ fn a_run_is_refused_before_it_starts_when_its_folder_or_prompt_or_harness_is_wro
     assert!(agents.runs().list().is_empty());
     assert!(fixture.review.asked.lock().unwrap().is_empty());
 }
+
+#[test]
+fn no_review_skips_the_review_after_the_run() {
+    let fixture = Fixture::new();
+    let finished = fixture
+        .agents()
+        .run(
+            &RunAsk {
+                harness: Some("fake".into()),
+                folder: Some(fixture.folder.path().display().to_string()),
+                prompt: "hi".into(),
+                no_review: true,
+                ..RunAsk::default()
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(finished.run.review, None);
+    assert_eq!(finished.run.state, RunState::Ended);
+    assert!(fixture.review.asked.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_second_run_in_the_same_folder_waits_until_the_first_ends() {
+    let fixture = Fixture::new();
+    let real = fixture.real_folder();
+    let held = crate::runs::FolderLock::take(&fixture.home.path().join("runs"), &real, &mut || {
+        panic!("nothing else holds the folder yet")
+    })
+    .unwrap();
+    let agents = fixture.agents();
+    let folder = fixture.folder.path().display().to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let waiting = std::thread::spawn(move || {
+        agents
+            .run(
+                &RunAsk {
+                    harness: Some("fake".into()),
+                    folder: Some(folder),
+                    prompt: "hi".into(),
+                    no_review: true,
+                    ..RunAsk::default()
+                },
+                &mut |event| {
+                    let _ = tx.send(event.name());
+                },
+            )
+            .unwrap()
+    });
+    let first = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    assert_eq!(first, "waiting");
+    assert!(rx
+        .recv_timeout(std::time::Duration::from_millis(300))
+        .is_err());
+    drop(held);
+    let finished = waiting.join().unwrap();
+    assert_eq!(finished.run.exit, Some(3));
+}
