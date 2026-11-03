@@ -5,7 +5,6 @@ use objc2::runtime::Bool;
 use objc2_foundation::{NSError, NSString};
 use objc2_local_authentication::{LAContext, LAPolicy};
 use security_framework::item::{ItemClass, ItemSearchOptions};
-use security_framework::os::macos::item::ItemSearchOptionsExt;
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::passwords::{get_generic_password, set_generic_password};
 use std::path::PathBuf;

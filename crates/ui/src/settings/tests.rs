@@ -89,6 +89,7 @@ impl Fixture {
         let options = Options {
             home: dir.path().to_path_buf(),
             admin: dir.path().join("admin.sock"),
+            agents: ::agents::Agents::local(dir.path(), ::harness::Registry::public),
         };
         let shared = Arc::new(UiState::new(1, "nonce".into(), &options).unwrap());
         let restart: Restart = Arc::new(|| Ok("The vault started again.".into()));
@@ -483,6 +484,7 @@ fn the_api_describes_the_settings_and_provider_routes() {
             &Options {
                 home: dir.path().to_path_buf(),
                 admin: dir.path().join("admin.sock"),
+                agents: ::agents::Agents::local(dir.path(), ::harness::Registry::public),
             },
         )
         .unwrap(),
