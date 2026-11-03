@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 static SKILLS: Dir = include_dir!("$CARGO_MANIFEST_DIR/skills");
@@ -51,31 +52,48 @@ pub struct ReviewTask {
     pub prompt_file: PathBuf,
     pub skills: PathBuf,
     pub scratch: PathBuf,
+    pub folder: PathBuf,
     pub providers: Option<PathBuf>,
     pub model_name: Option<String>,
+    pub harness_model: Option<String>,
 }
-#[derive(Clone, Copy)]
+pub type Available = Arc<dyn Fn() -> bool + Send + Sync>;
+pub type Commands = Arc<dyn Fn(&ReviewTask) -> Command + Send + Sync>;
+#[derive(Clone)]
 pub struct Reviewer {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub available: fn() -> bool,
-    pub command: fn(&ReviewTask) -> Command,
+    pub id: String,
+    pub label: String,
+    pub auto: bool,
+    pub available: Available,
+    pub command: Commands,
+}
+impl Reviewer {
+    pub fn new(id: &str, label: &str, available: Available, command: Commands) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            auto: true,
+            available,
+            command,
+        }
+    }
+    pub fn named_only(self) -> Self {
+        Self {
+            auto: false,
+            ..self
+        }
+    }
 }
 pub fn muse_reviewer() -> Reviewer {
-    Reviewer {
-        id: "muse",
-        label: "Muse Code",
-        available: || on_path("muse") && muse_signed_in(),
-        command: muse_command,
-    }
+    Reviewer::new(
+        "muse",
+        "Muse Code",
+        Arc::new(|| on_path("muse") && muse_signed_in()),
+        Arc::new(muse_command),
+    )
 }
 pub fn pi_reviewer() -> Reviewer {
-    Reviewer {
-        id: "pi",
-        label: "pi",
-        available: || on_path("pi"),
-        command: pi_command,
-    }
+    Reviewer::new("pi", "pi", Arc::new(|| on_path("pi")), Arc::new(pi_command))
 }
 fn muse_command(task: &ReviewTask) -> Command {
     let mut c = Command::new("muse");
@@ -109,15 +127,35 @@ fn pi_command(task: &ReviewTask) -> Command {
     c.arg(&task.prompt);
     c
 }
-pub fn pick_from(reviewers: &[Reviewer], choice: &str) -> Result<Option<Reviewer>> {
+pub const BY_MODEL: &str = "model";
+#[derive(Clone)]
+pub enum Chosen {
+    Harness(Reviewer),
+    Model,
+}
+impl Chosen {
+    pub fn id(&self) -> &str {
+        match self {
+            Chosen::Harness(reviewer) => &reviewer.id,
+            Chosen::Model => BY_MODEL,
+        }
+    }
+}
+pub fn pick_from(reviewers: &[Reviewer], choice: &str) -> Result<Option<Chosen>> {
     match choice {
         "none" => Ok(None),
-        "auto" => Ok(reviewers.iter().find(|r| (r.available)()).copied()),
+        BY_MODEL => Ok(Some(Chosen::Model)),
+        "auto" => Ok(reviewers
+            .iter()
+            .filter(|r| r.auto)
+            .find(|r| (r.available)())
+            .cloned()
+            .map(Chosen::Harness)),
         id => reviewers
             .iter()
             .find(|r| r.id == id)
-            .copied()
-            .map(Some)
+            .cloned()
+            .map(|r| Some(Chosen::Harness(r)))
             .ok_or_else(|| anyhow!("no reviewer called {id} is registered")),
     }
 }
@@ -131,10 +169,11 @@ fn make_private_dir(dir: &Path) -> Result<()> {
 }
 pub struct Rrf {
     reviewers: Vec<Reviewer>,
-    chosen: Option<Reviewer>,
+    chosen: Option<Chosen>,
     scratch: Option<tempfile::TempDir>,
     providers: Option<PathBuf>,
     model_name: Option<String>,
+    harness_model: Option<String>,
     limit: Duration,
     choice: String,
 }
@@ -146,6 +185,7 @@ impl Rrf {
             scratch: None,
             providers: None,
             model_name: None,
+            harness_model: None,
             limit: RUN_LIMIT,
             choice: "auto".into(),
         }
@@ -153,8 +193,97 @@ impl Rrf {
 }
 impl Default for Rrf {
     fn default() -> Self {
-        Self::new(vec![muse_reviewer(), pi_reviewer()])
+        Self::new(default_reviewers())
     }
+}
+#[cfg(not(feature = "harness"))]
+pub fn default_reviewers() -> Vec<Reviewer> {
+    vec![muse_reviewer(), pi_reviewer()]
+}
+#[cfg(feature = "harness")]
+pub fn default_reviewers() -> Vec<Reviewer> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    registry_reviewers(
+        &::harness::Registry::public(),
+        &home,
+        &crate::cli::state_dir("ai2"),
+    )
+}
+#[cfg(feature = "harness")]
+pub const AUTO_ORDER: [&str; 4] = ["muse", "claude", "codex", "pi"];
+#[cfg(feature = "harness")]
+pub fn registry_reviewers(
+    registry: &::harness::Registry,
+    home: &Path,
+    state: &Path,
+) -> Vec<Reviewer> {
+    let mut reviewers: Vec<Reviewer> = Vec::new();
+    for id in AUTO_ORDER {
+        match id {
+            "muse" => reviewers.push(muse_reviewer()),
+            "pi" => reviewers.push(pi_reviewer()),
+            _ => reviewers.extend(
+                registry
+                    .agent(id)
+                    .filter(|setup| setup.headless().is_some())
+                    .map(|setup| harness_reviewer(setup, home, state)),
+            ),
+        }
+    }
+    for setup in registry.all() {
+        let known = reviewers.iter().any(|r| r.id == setup.id);
+        if setup.is_agent() && setup.headless().is_some() && !known {
+            reviewers.push(harness_reviewer(setup, home, state).named_only());
+        }
+    }
+    reviewers
+}
+#[cfg(feature = "harness")]
+pub fn harness_reviewer(setup: &::harness::Setup, home: &Path, state: &Path) -> Reviewer {
+    let ready = setup.clone();
+    let (ready_home, ready_state) = (home.to_path_buf(), state.to_path_buf());
+    let run = setup.clone();
+    let run_home = home.to_path_buf();
+    Reviewer::new(
+        &setup.id,
+        &setup.label,
+        Arc::new(move || ready_to_run(&ready, &ready_home, &ready_state)),
+        Arc::new(move |task| harness_command(&run, &run_home, task)),
+    )
+}
+#[cfg(feature = "harness")]
+pub fn ready_to_run(setup: &::harness::Setup, home: &Path, state: &Path) -> bool {
+    use ::harness::state::{is_connected, on_path, workspace_path, State, States};
+    let path = workspace_path(home, &std::env::var("PATH").unwrap_or_default());
+    let known = States::at(state).of(&setup.id);
+    let installed = on_path(&setup.command, &path);
+    installed && is_connected(setup, State { installed, ..known })
+}
+#[cfg(feature = "harness")]
+pub fn harness_command(setup: &::harness::Setup, home: &Path, task: &ReviewTask) -> Command {
+    use ::harness::state::workspace_path;
+    let folder = task.folder.display().to_string();
+    let mut line = ::harness::task_line(
+        setup,
+        &task.prompt,
+        &folder,
+        task.harness_model.as_deref(),
+        None,
+    );
+    if let Some(flag) = setup.headless().and_then(|h| h.add_dir.as_deref()) {
+        line.push_str(&format!(
+            " {flag} {}",
+            ::harness::sh_quote(&task.scratch.display().to_string())
+        ));
+    }
+    let mut c = Command::new("sh");
+    c.arg("-c").arg(line).env(
+        "PATH",
+        workspace_path(home, &std::env::var("PATH").unwrap_or_default()),
+    );
+    c
 }
 impl Step for Rrf {
     fn id(&self) -> &'static str {
@@ -167,20 +296,22 @@ impl Step for Rrf {
         &["rating.msr"]
     }
     fn args(&self) -> Vec<clap::Arg> {
-        vec![clap::Arg::new("harness").long("harness").value_name("ID").default_value("auto").help("The coding harness for the Run Risk Factor: auto, none, or a registered reviewer id")]
+        vec![clap::Arg::new("harness").long("harness").value_name("ID").help("The coding harness for the Run Risk Factor: auto, none, model, or a registered reviewer id [default: the security settings, else auto]")]
     }
     fn provision(&mut self, ctx: &Context) -> Result<()> {
         self.choice = ctx
             .arg::<String>(self.id(), "harness")
             .cloned()
+            .or_else(|| ctx.reviewer.clone())
             .unwrap_or_else(|| "auto".into());
         self.chosen = pick_from(&self.reviewers, &self.choice)?;
-        self.providers = ctx.args.get_one::<std::path::PathBuf>("providers").cloned();
+        self.providers = ctx.providers.clone();
         self.model_name = ctx.model.as_ref().map(Model::name);
+        self.harness_model = ctx.reviewer_model.clone();
         if let Some(remaining) = ctx.remaining() {
             self.limit = remaining.min(RUN_LIMIT);
         }
-        if self.chosen.is_some() {
+        if matches!(self.chosen, Some(Chosen::Harness(_))) {
             self.scratch = Some(scratch()?);
         }
         Ok(())
@@ -189,15 +320,12 @@ impl Step for Rrf {
         self.scratch.take();
     }
     fn rate(&self, ctx: &Context, found: &Found) -> Result<Rated> {
-        let Some(reviewer) = self.chosen else {
+        let Some(chosen) = &self.chosen else {
             return Ok(Rated {
-                notes: vec![
-                    "No coding harness: install Muse Code and log in, or install pi.".into(),
-                ],
+                notes: vec!["No coding agent is set up and signed in.".into()],
                 ..Rated::default()
             });
         };
-        crate::cli::progress(&format!("reviewing the code with {}", reviewer.label));
         let technologies: Vec<&str> = ctx
             .spec
             .languages
@@ -207,6 +335,26 @@ impl Step for Rrf {
             .chain([ctx.spec.os.as_str()])
             .collect();
         let task = serde_json::json!({ "objective": ctx.objective, "changed": ctx.changed, "technologies": technologies, "exploits": found.exploits });
+        let reviewer = match chosen {
+            Chosen::Model => {
+                let Some(model) = &ctx.model else {
+                    return Ok(Rated {
+                        notes: vec!["No model was chosen for the review.".into()],
+                        ..Rated::default()
+                    });
+                };
+                crate::cli::progress(&format!("reviewing the code with {}", model.name()));
+                let (rating, findings) = model_review(model, ctx, &task)?;
+                return Ok(Rated {
+                    rating: Some(rating),
+                    findings,
+                    harness: Some(model.name()),
+                    ..Rated::default()
+                });
+            }
+            Chosen::Harness(reviewer) => reviewer,
+        };
+        crate::cli::progress(&format!("reviewing the code with {}", reviewer.label));
         let work = self
             .scratch
             .as_ref()
@@ -216,19 +364,92 @@ impl Step for Rrf {
         Ok(Rated {
             rating: Some(rating),
             findings,
-            harness: Some(reviewer.label),
+            harness: Some(reviewer.label.clone()),
             ..Rated::default()
         })
     }
 }
+const MODEL_FILE: usize = 32 * 1024;
+const MODEL_FILES: usize = 160 * 1024;
+const MODEL_NOTE: &str = "Here you only read: the files come in the message, and nothing can be changed, so every finding is open. The skills named above are not at hand; rely on what you know of them.";
+const WRITE_LINE: &str = "Then write one JSON file to {out}, and nothing else there:";
+
+pub fn model_prompt(task: &serde_json::Value) -> Result<String> {
+    let text = prompts::RRF.replace(WRITE_LINE, "Then answer with one JSON object alone:");
+    Ok(format!(
+        "{}\n\n{MODEL_NOTE}",
+        text.replace("{skills}", &SKILL_NAMES.join("\n"))
+            .replace("{task}", &serde_json::to_string_pretty(task)?)
+    ))
+}
+
+pub fn model_files(folder: &Path, changed: &[String]) -> String {
+    let mut files: Vec<PathBuf> = if changed.is_empty() {
+        let mut found = Vec::new();
+        walk(folder, &mut found);
+        found
+    } else {
+        changed.iter().map(|name| folder.join(name)).collect()
+    };
+    files.sort();
+    let mut out = String::new();
+    for file in files {
+        let inside = file
+            .canonicalize()
+            .is_ok_and(|real| real.starts_with(folder));
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        if !inside || text.len() > MODEL_FILE || out.len() + text.len() > MODEL_FILES {
+            continue;
+        }
+        let name = file
+            .strip_prefix(folder)
+            .unwrap_or(&file)
+            .display()
+            .to_string();
+        out.push_str(&format!("=== {name} ===\n{text}\n"));
+    }
+    out
+}
+
+fn walk(dir: &Path, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || crate::scan::SKIPPED.contains(&name.as_str()) {
+            continue;
+        }
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => walk(&path, found),
+            Ok(kind) if kind.is_file() => found.push(path),
+            _ => {}
+        }
+    }
+}
+
+fn model_review(
+    model: &Model,
+    ctx: &Context,
+    task: &serde_json::Value,
+) -> Result<(Rating, Vec<Finding>)> {
+    let answer: Answer = model.ask(
+        &model_prompt(task)?,
+        &model_files(&ctx.folder, &ctx.changed),
+    )?;
+    Ok((RRF.rate(&answer.factors), answer.findings))
+}
 fn rrf(
-    reviewer: Reviewer,
+    reviewer: &Reviewer,
     rrf_step: &Rrf,
     setup: &Context,
     task: &serde_json::Value,
     work: &Path,
 ) -> Result<(Rating, Vec<Finding>)> {
-    let skills = work.join("skills");
+    let skills = work.join(".claude").join("skills");
     SKILLS.extract(&skills).context("writing the skills")?;
     let out = work.join("findings.json");
     let read: Vec<String> = SKILL_NAMES
@@ -243,8 +464,10 @@ fn rrf(
         prompt_file: prompt_file.clone(),
         skills: skills.clone(),
         scratch: work.to_path_buf(),
+        folder: setup.folder.clone(),
         providers: rrf_step.providers.clone(),
         model_name: rrf_step.model_name.clone(),
+        harness_model: rrf_step.harness_model.clone(),
     };
     let mut command = (reviewer.command)(&task_ctx);
     let log_path = work.join("harness.log");
@@ -455,10 +678,223 @@ mod tests {
     #[test]
     fn a_named_harness_is_taken_as_named() {
         let rs = vec![muse_reviewer(), pi_reviewer()];
-        assert_eq!(pick_from(&rs, "muse").unwrap().map(|r| r.id), Some("muse"));
-        assert_eq!(pick_from(&rs, "pi").unwrap().map(|r| r.id), Some("pi"));
-        assert!(pick_from(&rs, "none").unwrap().is_none());
+        let id = |choice: &str| {
+            pick_from(&rs, choice)
+                .unwrap()
+                .map(|chosen| chosen.id().to_string())
+        };
+        assert_eq!(id("muse").as_deref(), Some("muse"));
+        assert_eq!(id("pi").as_deref(), Some("pi"));
+        assert_eq!(id("model").as_deref(), Some("model"));
+        assert!(id("none").is_none());
         assert!(pick_from(&rs, "dm").is_err());
+    }
+
+    fn fixed(id: &str, ready: bool) -> Reviewer {
+        let available: Available = if ready {
+            Arc::new(|| true)
+        } else {
+            Arc::new(|| false)
+        };
+        Reviewer::new(id, id, available, Arc::new(|_| Command::new("true")))
+    }
+
+    #[test]
+    fn auto_takes_the_first_ready_one_and_never_one_that_must_be_named() {
+        let rs = vec![
+            fixed("muse", false),
+            fixed("claude", true),
+            fixed("codex", true),
+            fixed("opencode", true).named_only(),
+        ];
+        let auto = |rs: &[Reviewer]| {
+            pick_from(rs, "auto")
+                .unwrap()
+                .map(|chosen| chosen.id().to_string())
+        };
+        assert_eq!(auto(&rs).as_deref(), Some("claude"));
+        assert_eq!(auto(&rs[2..]).as_deref(), Some("codex"));
+        assert_eq!(auto(&rs[3..]), None);
+        assert_eq!(
+            pick_from(&rs, "opencode")
+                .unwrap()
+                .map(|c| c.id().to_string())
+                .as_deref(),
+            Some("opencode")
+        );
+    }
+
+    fn task(work: &Path) -> ReviewTask {
+        ReviewTask {
+            prompt: "review it".into(),
+            prompt_file: work.join("prompt.md"),
+            skills: work.join(".claude/skills"),
+            scratch: work.to_path_buf(),
+            folder: PathBuf::from("/w"),
+            providers: None,
+            model_name: Some("p/m".into()),
+            harness_model: None,
+        }
+    }
+
+    fn args(command: &Command) -> Vec<String> {
+        command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn muse_and_pi_keep_their_command_lines() {
+        let work = Path::new("/s");
+        let muse = (muse_reviewer().command)(&task(work));
+        assert_eq!(muse.get_program(), "muse");
+        assert_eq!(
+            args(&muse),
+            [
+                "exec",
+                "--json",
+                "--yolo",
+                "--disable-request-user-input",
+                "--prompt-file",
+                "/s/prompt.md"
+            ]
+        );
+        let pi = (pi_reviewer().command)(&task(work));
+        assert_eq!(pi.get_program(), "pi");
+        let given = args(&pi);
+        assert_eq!(given[..4], ["-p", "--mode", "json", "--no-session"]);
+        assert!(given.contains(&"/s/.claude/skills/owasp-audit".to_string()));
+        assert_eq!(given[given.len() - 3..], ["--model", "p/m", "review it"]);
+    }
+
+    #[cfg(feature = "harness")]
+    fn fake_registry() -> ::harness::Registry {
+        let public = ::harness::Registry::public();
+        let mut registry = ::harness::Registry::default();
+        for id in ["claude", "codex", "hermes", "gh"] {
+            registry.put(public.get(id).unwrap().clone(), None);
+        }
+        registry
+    }
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn claude_and_codex_review_in_the_folder_headless_with_the_skills_folder_added() {
+        let home = tempfile::tempdir().unwrap();
+        let registry = fake_registry();
+        let rs = registry_reviewers(&registry, home.path(), home.path());
+        assert_eq!(
+            rs.iter()
+                .map(|r| (r.id.as_str(), r.auto))
+                .collect::<Vec<_>>(),
+            [
+                ("muse", true),
+                ("claude", true),
+                ("codex", true),
+                ("pi", true),
+                ("hermes", false)
+            ]
+        );
+        assert!(rs
+            .iter()
+            .all(|r| r.id == "muse" || r.id == "pi" || !(r.available)()));
+        let line = |id: &str, model: Option<&str>| {
+            let mut given = task(Path::new("/s"));
+            given.harness_model = model.map(str::to_string);
+            let command = (rs.iter().find(|r| r.id == id).unwrap().command)(&given);
+            assert_eq!(command.get_program(), "sh");
+            let path = command
+                .get_envs()
+                .find(|(name, _)| *name == "PATH")
+                .and_then(|(_, value)| value)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert!(path.starts_with(&home.path().join(".local/bin").display().to_string()));
+            args(&command)
+        };
+        assert_eq!(
+            line("claude", None),
+            ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --add-dir '/s'"]
+        );
+        assert_eq!(
+            line("claude", Some("opus")),
+            ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --add-dir '/s'"]
+        );
+        assert_eq!(
+            line("codex", None),
+            ["-c", "cd '/w' && exec codex exec 'review it' --json --dangerously-bypass-approvals-and-sandbox --add-dir '/s'"]
+        );
+        assert_eq!(
+            line("hermes", Some("x")),
+            ["-c", "cd '/w' && exec hermes chat -q 'review it' --format stream-json --yolo --model 'x'"]
+        );
+    }
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn a_harness_is_ready_once_installed_and_signed_in() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let registry = fake_registry();
+        let claude = registry.get("claude").unwrap();
+        assert!(!ready_to_run(claude, home.path(), home.path()));
+        std::fs::write(bin.join("claude"), "#!/bin/sh\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        assert!(!ready_to_run(claude, home.path(), home.path()));
+        ::harness::state::States::at(home.path())
+            .set(
+                "claude",
+                ::harness::state::State {
+                    installed: true,
+                    signed_in: true,
+                },
+            )
+            .unwrap();
+        assert!(ready_to_run(claude, home.path(), home.path()));
+    }
+
+    #[test]
+    fn the_harness_flag_beats_the_settings_and_the_settings_beat_auto() {
+        let folder = tempfile::tempdir().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let mut ctx = setup(folder.path(), out.path());
+        let flag =
+            || clap::Command::new("t").arg(clap::Arg::new("rating.rrf.harness").long("harness"));
+        ctx.args = flag().get_matches_from(["t"]);
+        let mut step = Rrf::new(vec![fixed("muse", true)]);
+        let chosen = |step: &mut Rrf, ctx: &Context| {
+            step.provision(ctx).unwrap();
+            let id = step.chosen.as_ref().map(|c| c.id().to_string());
+            step.cleanup();
+            id
+        };
+        assert_eq!(chosen(&mut step, &ctx).as_deref(), Some("muse"));
+        ctx.reviewer = Some("none".into());
+        assert_eq!(chosen(&mut step, &ctx), None);
+        ctx.args = flag().get_matches_from(["t", "--harness", "muse"]);
+        assert_eq!(chosen(&mut step, &ctx).as_deref(), Some("muse"));
+    }
+
+    #[test]
+    fn a_model_review_reads_the_files_and_answers_in_one_object() {
+        let given = model_prompt(&serde_json::json!({ "objective": "o" })).unwrap();
+        assert!(given.contains("Then answer with one JSON object alone:"));
+        assert!(!given.contains("{out}") && !given.contains("{skills}"));
+        assert!(given.contains("every finding is open"));
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.rs"), "fn a() {}").unwrap();
+        std::fs::create_dir(root.join("node_modules")).unwrap();
+        std::fs::write(root.join("node_modules/x.js"), "x").unwrap();
+        std::fs::write(root.join(".env"), "SECRET=1").unwrap();
+        let all = model_files(&root, &[]);
+        assert_eq!(all, "=== a.rs ===\nfn a() {}\n");
+        assert_eq!(model_files(&root, &["../etc/passwd".into()]), "");
     }
     #[test]
     fn secrets_are_redacted_from_a_log() {
@@ -481,19 +917,19 @@ mod tests {
     }
 
     fn failing_reviewer() -> Reviewer {
-        Reviewer {
-            id: "fake",
-            label: "fake",
-            available: || true,
-            command: |_| {
+        Reviewer::new(
+            "fake",
+            "fake",
+            Arc::new(|| true),
+            Arc::new(|_| {
                 let mut c = Command::new("sh");
                 c.args([
                     "-c",
                     "echo starting; echo 'no model: Bearer sekrit-token-1' >&2; exit 1",
                 ]);
                 c
-            },
-        }
+            }),
+        )
     }
 
     fn setup(folder: &Path, out: &Path) -> Context {
@@ -511,6 +947,9 @@ mod tests {
             model: None,
             args: clap::Command::new("t").get_matches_from(["t"]),
             deadline: None,
+            providers: None,
+            reviewer: None,
+            reviewer_model: None,
         }
     }
 
@@ -520,9 +959,9 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let work = tempfile::tempdir().unwrap();
         let reviewer = failing_reviewer();
-        let step = Rrf::new(vec![reviewer]);
+        let step = Rrf::new(vec![reviewer.clone()]);
         let ctx = setup(folder.path(), out.path());
-        let error = rrf(reviewer, &step, &ctx, &serde_json::json!({}), work.path())
+        let error = rrf(&reviewer, &step, &ctx, &serde_json::json!({}), work.path())
             .err()
             .expect("the harness failed");
         let message = format!("{error:#}");

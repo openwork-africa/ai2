@@ -55,7 +55,10 @@ const bump = () => revision.set(revision.get() + 1);
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
-export const vault = <T>(method: Method, path: string, body?: unknown, action: string | null = "make this change") => {
+export const vault = <T>(method: Method, path: string, body?: unknown, action: string | null = "make this change") =>
+  present<T>(method, `/api/vault${path}`, body, action);
+
+export const present = <T>(method: Method, path: string, body?: unknown, action: string | null = "make this change") => {
   const write = method !== "GET" && action !== null;
   const asking = action ?? "";
   return withPresence<T>(
@@ -68,7 +71,7 @@ export const vault = <T>(method: Method, path: string, body?: unknown, action: s
       },
       ask: () => new Promise<string | null>((resolve) => patchPresence({ ask: { action: asking, resolve } })),
     },
-    (passphrase) => api<T>(method, `/api/vault${path}`, body, passphrase ? { [PASSPHRASE_HEADER]: passphrase } : {}),
+    (passphrase) => api<T>(method, path, body, passphrase ? { [PASSPHRASE_HEADER]: passphrase } : {}),
   );
 };
 

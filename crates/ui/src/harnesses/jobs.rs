@@ -163,6 +163,19 @@ impl Harnesses {
             .collect()
     }
 
+    pub fn can_run(&self, id: &str) -> bool {
+        self.setup(id)
+            .is_some_and(|setup| setup.is_agent() && setup.headless().is_some())
+    }
+
+    pub fn ready(&self, id: &str) -> bool {
+        self.can_run(id)
+            && self
+                .list()
+                .iter()
+                .any(|harness| harness.id == id && harness.installed && harness.connected)
+    }
+
     pub fn job(&self, id: &str) -> Option<Arc<Run>> {
         lock(&self.jobs).all.get(id).cloned()
     }

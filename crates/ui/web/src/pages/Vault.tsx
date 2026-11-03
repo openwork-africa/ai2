@@ -1,6 +1,7 @@
 import { Box, Inbox, KeyRound, ScrollText, Ticket } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { Code, Dot, Page, PageHeader } from "@/components/page";
+import { SettingsCog } from "@/components/settings-cog";
 import { Badge } from "@/components/ui/badge";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Tabs, TabsContent, TabsList, TabsTrigger, TabsTriggerCount } from "@/components/ui/tabs";
@@ -37,13 +38,16 @@ export default function Vault() {
         title="Vault"
         description="Your keys stay locked away here, and agents get only a small pass to use them."
         actions={
-          vault && (
-            <Badge variant="outline" size="lg">
-              <Dot tone={vault.reachable ? "success" : "warning"} className="ring-0" />
-              {vault.reachable ? `vault v${vault.version ?? "?"}` : "vault down"}
-              {vault.reachable && vault.master_key !== null && ` · ${vault.master_key ? "master key loaded" : "no master key"}`}
-            </Badge>
-          )
+          <>
+            {vault && (
+              <Badge variant="outline" size="lg">
+                <Dot tone={vault.reachable ? "success" : "warning"} className="ring-0" />
+                {vault.reachable ? `vault v${vault.version ?? "?"}` : "vault down"}
+                {vault.reachable && vault.master_key !== null && ` · ${vault.master_key ? "master key loaded" : "no master key"}`}
+              </Badge>
+            )}
+            <SettingsCog page="vault" />
+          </>
         }
       />
       {vault && !vault.reachable && (

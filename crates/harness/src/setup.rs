@@ -16,6 +16,7 @@ pub struct Headless {
     pub personality: Option<Personality>,
     pub personality_env: Option<String>,
     pub no_model: bool,
+    pub add_dir: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

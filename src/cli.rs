@@ -209,15 +209,18 @@ fn execute(
         .canonicalize()
         .with_context(|| format!("{} is not a folder", cli.run_path.display()))?;
     let mut notes = Vec::new();
+    let settings = Settings::load(&state_dir(build.name), &mut notes);
     let providers = providers_file(build.name, cli.providers.clone());
+    let model_name = settings.model(cli.model.clone());
     let model = providers
         .as_deref()
-        .map(|file| model::Model::load(file, cli.model.as_deref()))
+        .map(|file| model::Model::load(file, model_name.as_deref()))
         .transpose()
         .unwrap_or_else(|error| {
             notes.push(format!("No model: {error:#}"));
             None
-        });
+        })
+        .map(|model| through_gateway(build.name, model));
     if providers.is_none() {
         notes.push("No providers file: the steps that ask a model were left out.".into());
     }
@@ -238,6 +241,9 @@ fn execute(
         model,
         args,
         deadline: Some(deadline),
+        providers: cli.providers.clone(),
+        reviewer: settings.reviewer,
+        reviewer_model: settings.reviewer_model,
     };
     let mut provision_failed: Vec<Option<String>> = Vec::new();
     for step in &mut steps {
@@ -301,7 +307,7 @@ fn execute(
             &ctx,
             &ratings,
             &found,
-            chosen_harness,
+            chosen_harness.clone(),
             &notes,
         );
         if let Err(error) = write(&review, &out, !cli.disable_dashboard) {
@@ -340,7 +346,7 @@ fn make_review(
     ctx: &Context,
     ratings: &[Card],
     found: &Found,
-    harness: Option<&'static str>,
+    harness: Option<String>,
     notes: &[String],
 ) -> Review {
     let risks: Vec<(String, f64)> = found
@@ -399,11 +405,54 @@ pub fn providers_file(name: &str, given: Option<PathBuf>) -> Option<PathBuf> {
             ))
             .map(PathBuf::from)
         })
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join(format!(".{name}/providers.json")))
-                .filter(|p| p.is_file())
-        })
+        .or_else(|| Some(state_dir(name).join("providers.json")).filter(|p| p.is_file()))
+}
+
+#[derive(Default)]
+struct Settings {
+    reviewer: Option<String>,
+    reviewer_model: Option<String>,
+    model_name: Option<String>,
+}
+
+impl Settings {
+    fn model(&self, flag: Option<String>) -> Option<String> {
+        flag.or_else(|| self.model_name.clone())
+    }
+
+    #[cfg(feature = "harness")]
+    fn load(home: &Path, notes: &mut Vec<String>) -> Self {
+        use ::harness::settings::{model_name, Security, Settings as _};
+        let security = match Security::load(home) {
+            Ok(Some(security)) => security,
+            Ok(None) => return Self::default(),
+            Err(error) => {
+                notes.push(format!("The security settings were left out: {error:#}"));
+                return Self::default();
+            }
+        };
+        let model_name = model_name(security.provider.as_deref(), security.model.as_deref());
+        Self {
+            reviewer_model: security.model.clone().filter(|_| model_name.is_none()),
+            model_name,
+            reviewer: Some(security.reviewer),
+        }
+    }
+
+    #[cfg(not(feature = "harness"))]
+    fn load(_home: &Path, _notes: &mut [String]) -> Self {
+        Self::default()
+    }
+}
+
+#[cfg(feature = "vault")]
+fn through_gateway(name: &str, model: model::Model) -> model::Model {
+    model.with_gateway(crate::vault::gateway(state_dir(name)))
+}
+
+#[cfg(not(feature = "vault"))]
+fn through_gateway(_name: &str, model: model::Model) -> model::Model {
+    model
 }
 
 pub fn state_dir(name: &str) -> PathBuf {
@@ -472,6 +521,37 @@ mod tests {
             format!("{:?}", ExitCode::FAILURE)
         );
     }
+    #[cfg(feature = "harness")]
+    #[test]
+    fn the_security_settings_fill_in_what_the_flags_leave_out() {
+        let home = tempfile::tempdir().unwrap();
+        let mut notes = Vec::new();
+        let none = Settings::load(home.path(), &mut notes);
+        assert!(none.reviewer.is_none() && none.model(None).is_none());
+        std::fs::write(
+            home.path().join("security.json"),
+            r#"{"reviewer":"model","provider":"anthropic","model":"claude-x"}"#,
+        )
+        .unwrap();
+        let byok = Settings::load(home.path(), &mut notes);
+        assert_eq!(byok.reviewer.as_deref(), Some("model"));
+        assert_eq!(byok.model(None).as_deref(), Some("anthropic/claude-x"));
+        assert_eq!(byok.model(Some("a/b".into())).as_deref(), Some("a/b"));
+        assert!(byok.reviewer_model.is_none());
+        std::fs::write(
+            home.path().join("security.json"),
+            r#"{"reviewer":"claude","model":"opus"}"#,
+        )
+        .unwrap();
+        let harness = Settings::load(home.path(), &mut notes);
+        assert_eq!(harness.reviewer.as_deref(), Some("claude"));
+        assert_eq!(harness.reviewer_model.as_deref(), Some("opus"));
+        assert!(harness.model(None).is_none());
+        std::fs::write(home.path().join("security.json"), "nope").unwrap();
+        assert!(Settings::load(home.path(), &mut notes).reviewer.is_none());
+        assert_eq!(notes.len(), 1);
+    }
+
     #[test]
     fn the_default_out_is_outside_the_reviewed_folder() {
         let out = default_out(Build::ai2(), Path::new("/tmp/example"));

@@ -4,6 +4,8 @@ use block2::RcBlock;
 use objc2::runtime::Bool;
 use objc2_foundation::{NSError, NSString};
 use objc2_local_authentication::{LAContext, LAPolicy};
+use security_framework::item::{ItemClass, ItemSearchOptions};
+use security_framework::os::macos::item::ItemSearchOptionsExt;
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::passwords::{get_generic_password, set_generic_password};
 use std::path::PathBuf;
@@ -48,6 +50,20 @@ impl Keychain {
         }
     }
 
+    fn find(&self) -> security_framework::base::Result<bool> {
+        let mut search = ItemSearchOptions::new();
+        search
+            .class(ItemClass::generic_password())
+            .service(&self.service)
+            .account(&self.account)
+            .load_attributes(true)
+            .limit(1);
+        if let Some(file) = &self.file {
+            search.keychains(&[SecKeychain::open(file)?]);
+        }
+        search.search().map(|found| !found.is_empty())
+    }
+
     fn set(&self, key: &[u8]) -> security_framework::base::Result<()> {
         match &self.file {
             None => set_generic_password(&self.service, &self.account, key),
@@ -60,8 +76,8 @@ impl Keychain {
 
 impl MasterKey for Keychain {
     fn exists(&self) -> Result<bool> {
-        match self.get() {
-            Ok(_) => Ok(true),
+        match self.find() {
+            Ok(found) => Ok(found),
             Err(error) if error.code() == NOT_FOUND => Ok(false),
             Err(error) => Err(anyhow!("reading the keychain: {error}")),
         }

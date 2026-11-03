@@ -173,6 +173,7 @@ pub fn public() -> Vec<Setup> {
                     ],
                     Headless {
                         personality: flag("--append-system-prompt"),
+                        add_dir: some("--add-dir"),
                         ..headless("claude -p", "--output-format stream-json --verbose --dangerously-skip-permissions")
                     },
                 ),
@@ -191,7 +192,10 @@ pub fn public() -> Vec<Setup> {
                     ModelChoice::new("gpt-5-codex", "GPT-5 Codex"),
                     ModelChoice::new("gpt-5", "GPT-5"),
                 ],
-                headless("codex exec", "--json --dangerously-bypass-approvals-and-sandbox"),
+                Headless {
+                    add_dir: some("--add-dir"),
+                    ..headless("codex exec", "--json --dangerously-bypass-approvals-and-sandbox")
+                },
             ),
             "codex login --device-auth",
             "Open the sign-in page, sign in with your ChatGPT account, and enter the code below.",
