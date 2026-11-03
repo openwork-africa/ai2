@@ -51,6 +51,7 @@ There are builds for macOS (Apple silicon and Intel) and Linux (x86_64 and arm64
 
 `ai2 setup` opens your browser: a few welcome screens, then setup as it runs.
 `ai2 setup --headless` does the same in the terminal.
+The dashboard and the vault both start when you log in. The dashboard is at `http://127.0.0.1:7797`; bookmark the address `ai2 ui address` prints, nonce and all.
 
 Setup asks you to approve once or twice.
 On a Mac that is Touch ID, or your Mac password.
@@ -63,7 +64,7 @@ There is no account and no sign-up. Your keys stay on this machine.
 - `ai2`, one binary.
 - The vault service, the only thing that ever holds your keys. It starts when you log in.
 - A place for agents to run boxed in: Apple's `container` on macOS 26 with Apple silicon, or a throwaway systemd unit on Linux. Where neither is there, setup says so, and agents run on the host.
-- A page on `http://127.0.0.1:7790`. `ai2 ui` opens it.
+- The dashboard, a page on `http://127.0.0.1:7797` that starts when you log in and keeps your apps running. `ai2 ui` opens it.
 
 ### First things to try
 
@@ -118,7 +119,7 @@ Any other MCP client: `{ "command": "ai2", "args": ["mcp"] }`.
 | `ai2 apps register\|list\|show\|check\|api\|start\|stop\|restart\|status\|logs\|remove` | your local apps; each needs an OpenAPI document and an icon |
 | `ai2 vault put\|list\|has\|delete\|rotate\|token\|sandbox\|approvals\|audit\|status\|apply\|migrate\|skill\|with\|ui` | keys, tokens, sandboxes and the gateway |
 | `ai2 harness list\|install\|sign-in\|command` | coding agents (below) |
-| `ai2 ui [--port n] [--no-open] [--tab page]` | the page on `127.0.0.1`; port 7790, or `AI2_UI_PORT`; `--port 0` picks a free one |
+| `ai2 ui [--port n] [--no-open] [--tab page]` | the page on `127.0.0.1`; port 7797, or `AI2_UI_PORT`; opens the dashboard already running, or serves one; `--port 0` picks a free one |
 | `ai2 mcp` | MCP over stdio; `ai2 mcp openapi` prints the tools as an OpenAPI document |
 | `ai2 doctor [--json]` | checks the binary, versions, setup, sockets, sandboxes and the vetting model; `--json` prints `[{check, state, detail, fix}]` |
 

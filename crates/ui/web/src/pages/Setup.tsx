@@ -1,6 +1,6 @@
 import { cn } from "cn";
 import { Monitor, ScrollText, WifiOff } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Mark } from "@/components/mark";
 import { DoneCard } from "@/components/setup/done-card";
@@ -29,10 +29,40 @@ import {
 } from "@/copy/setup";
 import { useSetup } from "@/hooks/use-setup";
 import { headers, NONCE_HEADER } from "@/lib/api";
-import type { Host, StepInfo } from "@/lib/setup";
+import { type Dashboard, getDashboard, handOver, type Host, type StepInfo } from "@/lib/setup";
 import { progress } from "@/lib/setup-reducer";
 
 const HOLD_MS = 2200;
+const LOOK_MS = 1000;
+const LOOKS = 30;
+
+function useDashboard(active: boolean) {
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    let timer = 0;
+    const look = async (left: number) => {
+      const found = await getDashboard().catch(() => null);
+      if (!alive) return;
+      if (found && (found.here || found.url)) {
+        setDashboard(found);
+        setSettled(true);
+      } else if (left > 1) {
+        timer = window.setTimeout(() => look(left - 1), LOOK_MS);
+      } else {
+        setSettled(true);
+      }
+    };
+    look(LOOKS);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [active]);
+  return { dashboard, settled };
+}
 
 const branchOf = (host: Host | null): Branch => (host?.os === "linux" ? "linux" : "macos");
 
@@ -87,8 +117,18 @@ export default function Setup() {
     () => Object.fromEntries(Object.entries(copies).map(([id, copy]) => [id, copy.title])),
     [copies],
   );
-  const address = `${window.location.origin}/?nonce=${headers()[NONCE_HEADER] ?? ""}`;
   const done = state.phase === "done";
+  const { dashboard, settled } = useDashboard(done && !state.check && Boolean(state.ok));
+  const elsewhere = dashboard?.here ? null : (dashboard?.url ?? null);
+  const address = elsewhere ?? `${window.location.origin}/?nonce=${headers()[NONCE_HEADER] ?? ""}`;
+  const goHome = useCallback(async () => {
+    if (!elsewhere) {
+      navigate("/");
+      return;
+    }
+    await handOver().catch(() => undefined);
+    window.location.assign(elsewhere);
+  }, [elsewhere, navigate]);
   const waitingFor = state.input?.step;
 
   useEffect(() => {
@@ -96,10 +136,10 @@ export default function Setup() {
   }, [busy]);
 
   useEffect(() => {
-    if (!done || !watched.current || state.check || !state.ok || state.warnings.length > 0) return;
-    const timer = window.setTimeout(() => navigate("/"), HOLD_MS);
+    if (!done || !watched.current || state.check || !state.ok || state.warnings.length > 0 || !settled) return;
+    const timer = window.setTimeout(() => void goHome(), HOLD_MS);
     return () => window.clearTimeout(timer);
-  }, [done, state.check, state.ok, state.warnings.length, navigate]);
+  }, [done, state.check, state.ok, state.warnings.length, settled, goHome]);
 
   const heading =
     state.phase === "idle"
@@ -174,7 +214,7 @@ export default function Setup() {
             machine={machine}
             titles={titles}
             address={address}
-            onOpen={() => navigate("/")}
+            onOpen={() => void goHome()}
             onRun={(check) => run({ check, from: state.steps.find((step) => step.status === "failed")?.id })}
           />
         )}

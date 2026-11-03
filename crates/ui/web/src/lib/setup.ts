@@ -60,4 +60,7 @@ export const startSetup = (body: { check?: boolean; from?: string }) =>
   api<{ phase: Phase }>("POST", "/api/setup/start", body);
 export const answerInput = (id: string, values: string[]) =>
   api<unknown>("POST", "/api/setup/answer", { id, values });
-export const cancelInput = (id: string) => api<unknown>("POST", "/api/setup/answer", { id, cancel: true });
+export type Dashboard = { here: boolean; url: string | null };
+export const getDashboard = () => api<Dashboard>("GET", "/api/setup/dashboard");
+export const handOver = () => api<{ stopping: boolean }>("POST", "/api/setup/handover");
+export const cancelInput =(id: string) => api<unknown>("POST", "/api/setup/answer", { id, cancel: true });
