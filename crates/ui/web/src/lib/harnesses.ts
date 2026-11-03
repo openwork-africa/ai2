@@ -22,6 +22,8 @@ export type Harness = {
   installed: boolean;
   signed_in: boolean;
   connected: boolean;
+  skills: string | null;
+  skill: boolean;
   job: JobSummary | null;
 };
 
@@ -38,6 +40,9 @@ export const listHarnesses = () => api<{ harnesses: Harness[] }>("GET", "/api/ha
 
 export const startJob = (id: string, action: Action) =>
   api<{ job: JobSummary }>("POST", `/api/harnesses/${encodeURIComponent(id)}/${action}`);
+
+export const addSkill = (id: string) =>
+  api<{ harness: string; path: string }>("POST", `/api/harnesses/${encodeURIComponent(id)}/skill`);
 
 export const answerJob = (job: string, text: string) =>
   api<void>("POST", `/api/harnesses/jobs/${encodeURIComponent(job)}/answer`, { text });

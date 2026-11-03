@@ -15,6 +15,8 @@ const harness = (over: Partial<Harness>): Harness => ({
   installed: true,
   signed_in: true,
   connected: true,
+  skills: null,
+  skill: false,
   job: null,
   ...over,
 });

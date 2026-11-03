@@ -153,6 +153,8 @@ impl Harnesses {
                     installed: state.installed,
                     signed_in: state.signed_in,
                     connected: is_connected(setup, state),
+                    skills: harness::skill::folder(setup, &self.home).map(|dir| self.shown(&dir)),
+                    skill: harness::skill::installed(setup, &self.home),
                     job: jobs
                         .latest
                         .get(&setup.id)
@@ -161,6 +163,25 @@ impl Harnesses {
                 }
             })
             .collect()
+    }
+
+    fn shown(&self, dir: &std::path::Path) -> String {
+        match dir.strip_prefix(&self.home) {
+            Ok(rest) if !self.home.as_os_str().is_empty() => format!("~/{}", rest.display()),
+            _ => dir.display().to_string(),
+        }
+    }
+
+    pub fn add_skill(&self, id: &str) -> Result<PathBuf, Refused> {
+        let setup = self.setup(id).ok_or_else(|| {
+            refused(
+                404,
+                "not_found",
+                format!("There is no harness called {id}."),
+            )
+        })?;
+        harness::skill::install(setup, &self.home)
+            .map_err(|failure| refused(409, "skill_refused", format!("{failure:#}")))
     }
 
     pub fn can_run(&self, id: &str) -> bool {

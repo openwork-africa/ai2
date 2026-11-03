@@ -2,6 +2,7 @@ import { cn } from "cn";
 import { Bot, Download, LogIn, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { HarnessJob } from "@/components/harness-job";
+import { SkillButton } from "@/components/mcp-connect";
 import { ModelProviders } from "@/components/providers";
 import { Code, Dot, Page, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
@@ -128,6 +129,7 @@ function HarnessCard({
   onStart,
   onAnswer,
   onDismiss,
+  onSkill,
 }: {
   harness: Harness;
   job?: JobView;
@@ -136,6 +138,7 @@ function HarnessCard({
   onStart: (action: Action) => void;
   onAnswer: (text: string) => Promise<void>;
   onDismiss: () => void;
+  onSkill: () => void;
 }) {
   const wide = Boolean(job);
   return (
@@ -179,6 +182,7 @@ function HarnessCard({
       ) : (
         <div className="flex flex-col gap-4 px-(--card-spacing)">
           <Models harness={harness} />
+          {harness.installed && harness.skills && <SkillButton harness={harness} onAdded={onSkill} />}
           <div className="-mx-(--card-spacing) flex items-center justify-between gap-2 border-t px-(--card-spacing) pt-3">
             <span className={cn("truncate text-2xs", failure ? "text-destructive" : "text-muted-foreground")}>
               {failure ?? standing(harness)}
@@ -296,6 +300,7 @@ export default function Harnesses() {
       onStart={(action) => begin(harness, action)}
       onAnswer={(text) => answer(harness.id, text)}
       onDismiss={() => dismiss(harness.id)}
+      onSkill={() => void load()}
     />
   );
 

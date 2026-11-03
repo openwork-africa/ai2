@@ -51,6 +51,7 @@ pub struct Setup {
     pub sign_in_hint: Option<String>,
     pub logo: Option<String>,
     pub use_text: Option<String>,
+    pub skills: Option<String>,
     pub agent: Option<Agent>,
 }
 

@@ -20,15 +20,15 @@ const HEADERS: [(&str, &str); 6] = [
     ("cross-origin-resource-policy", "same-origin"),
 ];
 
-pub async fn guard(State(state): State<Shared>, request: Request, next: Next) -> Response {
-    let response = match check(&state, &request) {
+pub async fn guard(State(state): State<Shared>, mut request: Request, next: Next) -> Response {
+    let response = match check(&state, &mut request) {
         Some(refused) => refused,
         None => next.run(request).await,
     };
     secure(response)
 }
 
-fn check(state: &Shared, request: &Request) -> Option<Response> {
+fn check(state: &Shared, request: &mut Request) -> Option<Response> {
     let headers = request.headers();
     if single(headers, HOST.as_str()) != Some(state.host.as_str()) {
         return Some(forbidden("The Host header does not match this server."));
@@ -41,11 +41,14 @@ fn check(state: &Shared, request: &Request) -> Option<Response> {
     {
         return Some(forbidden("The Origin does not match this server."));
     }
+    let path = request.uri().path();
+    let open = crate::mcp_auth::open(path);
+    let caller = crate::mcp_auth::caller(state, path, headers);
     let writes = !matches!(*request.method(), Method::GET | Method::HEAD);
-    if writes && origin.is_empty() {
+    if writes && origin.is_empty() && caller.is_none() && !open {
         return Some(forbidden("A change must come from this page."));
     }
-    if guarded(request.uri().path()) {
+    if guarded(path) && caller.is_none() && !open {
         let given = single(headers, NONCE_HEADER).unwrap_or_default();
         if !same(given, &state.nonce) {
             return Some(forbidden(
@@ -53,6 +56,7 @@ fn check(state: &Shared, request: &Request) -> Option<Response> {
             ));
         }
     }
+    crate::mcp_auth::mark(request, caller);
     None
 }
 
@@ -64,7 +68,7 @@ pub fn guarded(path: &str) -> bool {
         || path == "/openapi.json"
 }
 
-fn single<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+pub fn single<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let mut values = headers.get_all(name).iter();
     let first = values.next()?;
     if values.next().is_some() {

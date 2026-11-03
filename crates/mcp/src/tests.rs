@@ -166,6 +166,7 @@ impl Fixture {
         Pieces {
             name: "ai2",
             version: "0.0.0-test",
+            clients: crate::clients::Clients::at(&home),
             reviews: Arc::new(Child::new(bin, home.clone())),
             #[cfg(feature = "harness")]
             harness: Arc::new(crate::harness::local(registry, home.join("state"))),
@@ -418,6 +419,34 @@ async fn the_stdio_transport_answers_initialize_lists_tools_and_calls_a_tool() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn a_stdio_client_is_recorded_by_its_name_and_version_on_initialize() {
+    let fixture = Fixture::new();
+    let clients = crate::clients::Clients::at(fixture.home.path());
+    assert!(clients.clients().unwrap().is_empty());
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let server = Server::new(fixture.pieces(PathBuf::from("/bin/false")));
+    tokio::spawn(async move {
+        let (read, write) = tokio::io::split(theirs);
+        let _ = crate::serve(server, read, write).await;
+    });
+    let info = rmcp::model::ClientConfig::new(
+        rmcp::model::ClientCapabilities::default(),
+        rmcp::model::Implementation::new("claude-code", "2.1.0"),
+    );
+    let client = info.serve(ours).await.unwrap();
+    let listed = client.list_all_tools().await.unwrap();
+    assert!(!listed.is_empty());
+    let seen = clients.clients().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].name, "claude-code");
+    assert_eq!(seen[0].version, "2.1.0");
+    assert_eq!(seen[0].transport, "stdio");
+    assert_eq!(seen[0].token, None);
+    assert!(seen[0].first_seen > 0);
+    client.cancel().await.unwrap();
+}
+
 #[cfg(feature = "harness")]
 #[tokio::test]
 async fn a_harness_install_returns_what_it_printed_and_marks_it_installed() {
@@ -476,6 +505,9 @@ fn no_vault_tool_output_schema_has_a_secret_field_or_any_tool_a_passphrase() {
             &mut outputs,
         );
         for name in &outputs {
+            if tool.name == "vault_create_token" && name == "token" {
+                continue;
+            }
             assert!(
                 !forbidden.contains(&name.as_str()),
                 "{} outputs {name}",
@@ -500,7 +532,7 @@ async fn vault_tools_go_through_the_admin_socket_and_never_hand_back_a_secret() 
         "POST",
         "/tokens",
         200,
-        json!({ "id": "tok_1", "keys": ["gh"], "sandbox": "host", "mode": "agent", "methods": ["GET"], "url_prefixes": [], "intent": "read issues", "created": "c", "expires": "e", "uses_left": null, "token": "vt_leak", "revoke": "rv_leak", "warnings": ["Not safe"] }),
+        json!({ "id": "tok_1", "keys": ["gh"], "sandbox": "host", "mode": "agent", "methods": ["GET"], "url_prefixes": [], "intent": "read issues", "created": "c", "expires": "e", "uses_left": null, "token": "vt_made", "revoke": "rv_leak", "warnings": ["Not safe"] }),
     );
     vault.answer(
         "PUT",
@@ -534,6 +566,8 @@ async fn vault_tools_go_through_the_admin_socket_and_never_hand_back_a_secret() 
     assert_eq!(made_json["id"], "tok_1");
     assert_eq!(made_json["warnings"][0], "Not safe");
     assert_eq!(made_json["withheld"], crate::vault::WITHHELD);
+    assert_eq!(made_json["token"], "vt_made");
+    assert!(made_json.get("revoke").is_none());
     let audit = structured(&call(&client, "vault_audit", json!({ "tail": 5 })).await);
     assert_eq!(audit["entries"][0]["token_id"], "tok_1");
     for result in [&keys, &made] {

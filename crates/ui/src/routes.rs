@@ -1,6 +1,8 @@
 use crate::state::Shared;
 use crate::{agents, apps, bundle, harnesses, reviews, security, status, vault};
 use axum::extract::DefaultBodyLimit;
+use axum::http::header::CONTENT_TYPE;
+use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{middleware, Json, Router};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -16,7 +18,7 @@ use utoipa_axum::router::OpenApiRouter;
 struct Doc;
 
 pub fn api() -> OpenApiRouter<Shared> {
-    OpenApiRouter::new()
+    let api = OpenApiRouter::new()
         .merge(status::routes())
         .merge(vault::routes())
         .merge(crate::setup::routes())
@@ -24,7 +26,19 @@ pub fn api() -> OpenApiRouter<Shared> {
         .merge(harnesses::routes())
         .merge(reviews::routes())
         .merge(agents::routes())
-        .merge(crate::settings::routes())
+        .merge(crate::settings::routes());
+    #[cfg(feature = "mcp")]
+    let api = api.merge(crate::mcp::routes());
+    api
+}
+
+pub const SKILL_PATH: &str = "/skill.md";
+
+async fn skill() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/markdown; charset=utf-8")],
+        harness::skill::AI2,
+    )
 }
 
 pub fn router(state: Shared) -> (Router, OpenApi) {
@@ -35,7 +49,8 @@ pub fn router(state: Shared) -> (Router, OpenApi) {
     let served = document.clone();
     let router = Router::new()
         .merge(api)
-        .route("/openapi.json", get(move || async move { Json(served) }));
+        .route("/openapi.json", get(move || async move { Json(served) }))
+        .route(SKILL_PATH, get(skill));
     #[cfg(feature = "mcp")]
     let router = crate::mcp::mount(router, &state);
     let router = router

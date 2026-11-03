@@ -54,7 +54,7 @@ fn registry() -> Registry {
 }
 
 struct Fixture {
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
     state: std::path::PathBuf,
     router: Router,
     runtime: tokio::runtime::Runtime,
@@ -79,7 +79,7 @@ impl Fixture {
             .nest("/api", with(harnesses))
             .split_for_parts();
         Self {
-            _dir: dir,
+            dir,
             state,
             router: router.with_state(shared),
             runtime: tokio::runtime::Builder::new_multi_thread()
@@ -384,10 +384,48 @@ fn the_api_describes_the_harness_routes() {
         "/harnesses/{id}/sign-in",
         "/harnesses/jobs/{job}/events",
         "/harnesses/jobs/{job}/answer",
+        "/harnesses/{id}/skill",
     ] {
         assert!(
             paths.iter().any(|known| *known == path),
             "{path} in {paths:?}"
         );
     }
+}
+
+#[test]
+fn the_skill_is_written_only_into_the_harness_skills_folder_under_home() {
+    let mut registry = registry();
+    registry.put(
+        Setup {
+            skills: Some(".fake/skills".into()),
+            ..fake("skilled", "true", None)
+        },
+        None,
+    );
+    let fixture = Fixture::new(&registry);
+    let home = fixture.dir.path().join("home");
+    let before = fixture.harness("skilled");
+    assert_eq!(before["skills"], "~/.fake/skills");
+    assert_eq!(before["skill"], false);
+    assert_eq!(fixture.harness("quick")["skills"], Value::Null);
+
+    let (status, added) = fixture.json("POST", "/api/harnesses/skilled/skill", None);
+    assert_eq!(status, StatusCode::OK, "{added}");
+    let file = home.join(".fake/skills/ai2/SKILL.md");
+    assert_eq!(added["path"], file.display().to_string());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), harness::skill::AI2);
+    assert_eq!(fixture.harness("skilled")["skill"], true);
+    let written: Vec<_> = std::fs::read_dir(home.join(".fake/skills/ai2"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(written, ["SKILL.md"]);
+    assert_eq!(std::fs::read_dir(&home).unwrap().count(), 1);
+
+    let (status, _) = fixture.json("POST", "/api/harnesses/quick/skill", None);
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = fixture.json("POST", "/api/harnesses/nope/skill", None);
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!home.join(".claude").exists());
 }

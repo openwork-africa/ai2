@@ -12,6 +12,10 @@ pub struct State {
     pub admin: PathBuf,
     pub apps: apps::Supervisor,
     pub agents: agents::Agents,
+    #[cfg(feature = "mcp")]
+    pub clients: mcp::clients::Clients,
+    #[cfg(feature = "mcp")]
+    pub pairing: mcp::clients::Pairing,
 }
 
 impl State {
@@ -26,6 +30,10 @@ impl State {
             admin: options.admin.clone(),
             apps: apps::Supervisor::new(apps::Store::at_home(&options.home)?),
             agents: options.agents.clone(),
+            #[cfg(feature = "mcp")]
+            clients: mcp::clients::Clients::at(&options.home),
+            #[cfg(feature = "mcp")]
+            pairing: mcp::clients::Pairing::default(),
         })
     }
 }

@@ -143,7 +143,32 @@ fn muse_personality(personality: &str) -> String {
     format!("-c {}", sh_quote(&format!("run.developer_prompt={given}")))
 }
 
+pub const SKILLS: [(&str, &str); 8] = [
+    ("claude", ".claude/skills"),
+    ("codex", ".agents/skills"),
+    ("opencode", ".config/opencode/skills"),
+    ("pi", ".pi/agent/skills"),
+    ("antigravity", ".gemini/config/skills"),
+    ("muse", ".config/muse/skills"),
+    ("hermes", ".hermes/skills"),
+    ("fx", ".fx/skills"),
+];
+
+fn skilled(setup: Setup) -> Setup {
+    Setup {
+        skills: SKILLS
+            .iter()
+            .find(|(id, _)| *id == setup.id)
+            .map(|(_, dir)| dir.to_string()),
+        ..setup
+    }
+}
+
 pub fn pi() -> Setup {
+    skilled(pi_setup())
+}
+
+fn pi_setup() -> Setup {
     agent(
         "pi",
         "pi",
@@ -158,6 +183,10 @@ pub fn pi() -> Setup {
 }
 
 pub fn public() -> Vec<Setup> {
+    every().into_iter().map(skilled).collect()
+}
+
+fn every() -> Vec<Setup> {
     vec![
         logo(
             signs_in(
@@ -215,7 +244,7 @@ pub fn public() -> Vec<Setup> {
             ),
             "opencode.svg",
         ),
-        pi(),
+        pi_setup(),
         logo(
             signs_in(
                 agent(

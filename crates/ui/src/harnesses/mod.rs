@@ -31,6 +31,8 @@ pub struct Harness {
     pub installed: bool,
     pub signed_in: bool,
     pub connected: bool,
+    pub skills: Option<String>,
+    pub skill: bool,
     pub job: Option<Job>,
 }
 
@@ -60,6 +62,12 @@ pub struct Started {
     pub job: Job,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SkillAdded {
+    pub harness: String,
+    pub path: String,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct Answer {
     pub text: String,
@@ -76,6 +84,7 @@ pub fn with(harnesses: Arc<Harnesses>) -> OpenApiRouter<Shared> {
         .routes(routes!(sign_in))
         .routes(routes!(events))
         .routes(routes!(answer))
+        .routes(routes!(add_skill))
         .layer(Extension(harnesses))
 }
 
@@ -203,5 +212,32 @@ async fn answer(
         StatusCode::NO_CONTENT.into_response()
     } else {
         error(409, "ended", "That job has ended; start it again.")
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/harnesses/{id}/skill",
+    tag = "harness",
+    params(("id" = String, Path, description = "The harness id, as the list names it")),
+    responses(
+        (status = 200, description = "The ai2 skill is in the harness's skills folder", body = SkillAdded),
+        (status = 404, description = "There is no such harness", body = crate::Reply),
+        (status = 409, description = "The harness has no skills folder ai2 knows of, or the folder could not be written", body = crate::Reply)
+    )
+)]
+async fn add_skill(
+    Extension(harnesses): Extension<Arc<Harnesses>>,
+    Path(id): Path<String>,
+) -> Response {
+    let asked = id.clone();
+    match tokio::task::spawn_blocking(move || harnesses.add_skill(&asked)).await {
+        Ok(Ok(path)) => Json(SkillAdded {
+            harness: id,
+            path: path.display().to_string(),
+        })
+        .into_response(),
+        Ok(Err(refused)) => error(refused.status, refused.code, &refused.message),
+        Err(failure) => error(500, "skill_failed", &failure.to_string()),
     }
 }
