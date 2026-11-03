@@ -57,6 +57,7 @@ mod tests {
                 "muse",
                 "hermes",
                 "deepseek",
+                "fx",
                 "gh"
             ]
         );
