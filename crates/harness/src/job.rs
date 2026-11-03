@@ -15,6 +15,7 @@ const PROMPT_PAUSE: Duration = Duration::from_millis(250);
 const INPUT_CHARS: usize = 2000;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Event {
     Line {
