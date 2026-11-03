@@ -2,6 +2,7 @@
 pub mod agents;
 #[cfg(feature = "apps")]
 pub mod apps;
+pub mod clients;
 mod failure;
 #[cfg(feature = "harness")]
 pub mod harness;

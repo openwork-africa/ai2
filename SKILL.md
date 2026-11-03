@@ -83,6 +83,26 @@ ai2 serves its tools over MCP on stdio: `ai2 mcp`.
 - Any other MCP client: add `{ "command": "ai2", "args": ["mcp"] }` to its MCP servers.
 - No MCP support (for example pi): use the `ai2` commands below instead.
 
+`ai2 mcp` runs as the user, like the CLI; ai2 notes each client that connects (its name and version) in `~/.ai2/mcp/clients.json`.
+
+To keep this guide at hand, add it as a skill: `ai2 skill install claude` (or `codex`, `opencode`, `pi`, `antigravity`, `muse`, `hermes`, `fx`). It writes only `<that agent's skills folder>/ai2/SKILL.md`.
+
+Over HTTP instead (a client that cannot start a command): the page serves MCP at `<page>/mcp`, where `<page>` is the address before `/skill.md` in the line the human gave you. It needs a key, made once from a pairing code:
+
+1. The human opens the Apps page of `ai2 ui`, then **Connect over HTTP**, then **Make a pairing code**. It is 8 letters and digits, good once, for 10 minutes. If they gave you a code already, use it.
+2. Trade it for a key, once:
+
+   ```sh
+   curl -s -X POST <page>/mcp/pair -H 'Content-Type: application/json' -d '{"code":"<CODE>","name":"<your name>"}'
+   ```
+
+   It answers `{"id", "token", "url", "header"}`. The token is shown only this once.
+3. Add the server with that header. Claude Code: `claude mcp add --transport http ai2 <url> --header "Authorization: Bearer <token>"`. Others: `{ "url": "<url>", "headers": { "Authorization": "Bearer <token>" } }`.
+
+Keep the token out of chat and out of the repository. The human can revoke it on the Apps page.
+
+Through MCP, `vault_create_token` returns the `vt_` token it made once the human approves; it works only from its sandbox, for its keys. A change to the vault still asks the human (Touch ID or polkit).
+
 The tools include `apps_register`, `apps_list`, `apps_start`, `reviews_run`, `reviews_list`, `vault_list_keys`, `harness_list` and `setup_check`. You may need a restart of your session to see them; say so if so.
 
 ## 5. Do one useful thing

@@ -172,6 +172,7 @@ pub struct Tokens {
 pub struct TokenMade {
     #[serde(flatten)]
     pub made: TokenInfo,
+    pub token: String,
     #[serde(default)]
     pub warnings: Vec<String>,
     #[serde(default)]
@@ -319,7 +320,7 @@ pub struct AuditAsk {
     pub tail: Option<usize>,
 }
 
-pub const WITHHELD: &str = "The token was made, but no MCP tool returns a token: make tokens to hand out in ai2 ui or with ai2 vault token create, which show it once. Revoke this one with vault_revoke_token if nobody needs it.";
+pub const WITHHELD: &str = "The token works only from its sandbox, for its keys, methods and URL prefixes. Its one-time revoke value is never returned to an MCP client; ai2 ui and ai2 vault token create show it once. Revoke this token with vault_revoke_token when it is no longer needed.";
 
 impl Server {
     fn admin(&self) -> Arc<dyn Admin> {
@@ -472,7 +473,7 @@ impl Server {
 
     #[tool(
         name = "vault_create_token",
-        description = "Makes a vault token for keys in a sandbox. The token itself is never returned to an MCP client; make one to hand out in ai2 ui or the CLI. The person at the machine approves it; on Linux it answers presence_required"
+        description = "Makes a vault token (vt_...) for keys in a sandbox and returns it, once the person at the machine approves it; on Linux it answers presence_required. The token works only from that sandbox, for those keys; its one-time revoke value is withheld"
     )]
     async fn vault_create_token(
         &self,

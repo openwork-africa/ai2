@@ -699,3 +699,121 @@ fn something_else_on_the_port_or_nothing_at_all_is_not_reused() {
     assert!(crate::service::running(fresh.path(), dashboard.port, None).is_none());
     assert!(!nonce::path(fresh.path()).exists());
 }
+
+#[test]
+fn the_skill_is_served_without_the_nonce_with_the_security_headers() {
+    let dir = tempfile::tempdir().unwrap();
+    let ui = ui_without_daemon(dir.path());
+    let served = ui.get("/skill.md");
+    assert_eq!(served.status, 200);
+    assert_eq!(served.text(), harness::skill::AI2);
+    assert_eq!(
+        served.header("content-type"),
+        Some("text/markdown; charset=utf-8")
+    );
+    assert_eq!(served.header("x-content-type-options"), Some("nosniff"));
+    assert_eq!(
+        served.header("content-security-policy"),
+        Some(crate::security::POLICY)
+    );
+    let refused = ui.send("GET", "/skill.md", &[("Host", "evil.example:1")], b"");
+    assert_eq!(refused.status, 403);
+}
+
+#[cfg(feature = "mcp")]
+fn initialize(ui: &Ui, headers: &[(&str, &str)]) -> Reply {
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cursor","version":"1.2"}}}"#;
+    let mut all = vec![
+        ("Host", ui.host.as_str()),
+        ("Content-Type", "application/json"),
+        ("Accept", "application/json, text/event-stream"),
+    ];
+    all.extend_from_slice(headers);
+    ui.send("POST", "/mcp", &all, body.as_bytes())
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn an_http_client_pairs_once_with_a_code_and_its_token_opens_mcp_until_revoked() {
+    let dir = tempfile::tempdir().unwrap();
+    let ui = ui_without_daemon(dir.path());
+    let pair = |code: &str| {
+        ui.send(
+            "POST",
+            "/mcp/pair",
+            &[("Host", &ui.host), ("Content-Type", "application/json")],
+            serde_json::json!({ "code": code, "name": "Cursor" })
+                .to_string()
+                .as_bytes(),
+        )
+    };
+    let empty = ui.api("GET", "/api/mcp/clients", &[], "").json();
+    assert_eq!(empty["clients"], serde_json::json!([]));
+    assert_eq!(empty["pairing"], serde_json::Value::Null);
+    assert_eq!(empty["url"], format!("http://{}/mcp", ui.host));
+    assert_eq!(pair("ABCDEFGH").status, 403);
+    assert_eq!(
+        ui.send("POST", "/api/mcp/pairing", &[("Host", &ui.host)], b"")
+            .status,
+        403
+    );
+
+    let code = ui.api("POST", "/api/mcp/pairing", &[], "").json();
+    let code = code["code"].as_str().unwrap().to_string();
+    assert_eq!(code.len(), 8);
+    let listed = ui.api("GET", "/api/mcp/clients", &[], "").json();
+    assert_eq!(listed["pairing"]["code"], code);
+    let foreign = ui.send(
+        "POST",
+        "/mcp/pair",
+        &[
+            ("Host", &ui.host),
+            ("Origin", "http://evil.example"),
+            ("Content-Type", "application/json"),
+        ],
+        serde_json::json!({ "code": code }).to_string().as_bytes(),
+    );
+    assert_eq!(foreign.status, 403);
+
+    let paired = pair(&code);
+    assert_eq!(paired.status, 200, "{}", paired.text());
+    let paired = paired.json();
+    let token = paired["token"].as_str().unwrap().to_string();
+    assert!(token.starts_with("ai2_"));
+    assert_eq!(paired["header"], format!("Authorization: Bearer {token}"));
+    assert_eq!(pair(&code).status, 403);
+    let stored = std::fs::read_to_string(dir.path().join("mcp/clients.json")).unwrap();
+    assert!(!stored.contains(&token));
+
+    assert_eq!(initialize(&ui, &[]).status, 403);
+    assert_eq!(
+        initialize(&ui, &[("Authorization", "Bearer ai2_not_a_token")]).status,
+        403
+    );
+    let bearer = format!("Bearer {token}");
+    let answered = initialize(&ui, &[("Authorization", &bearer)]);
+    assert_eq!(answered.status, 200, "{}", answered.text());
+    assert!(answered.text().contains("\"serverInfo\""));
+
+    let listed = ui.api("GET", "/api/mcp/clients", &[], "").json();
+    assert_eq!(listed["pairing"], serde_json::Value::Null);
+    assert_eq!(listed["clients"][0]["name"], "cursor");
+    assert_eq!(listed["clients"][0]["transport"], "http");
+    assert_eq!(listed["clients"][0]["token"], paired["id"]);
+    assert_eq!(listed["tokens"][0]["id"], paired["id"]);
+    assert_eq!(listed["tokens"][0]["name"], "Cursor");
+    assert!(listed["tokens"][0].get("hash").is_none());
+    assert!(!listed.to_string().contains(&token));
+
+    let id = paired["id"].as_str().unwrap();
+    let revoked = ui.api("DELETE", &format!("/api/mcp/tokens/{id}"), &[], "");
+    assert_eq!(revoked.status, 200);
+    assert_eq!(
+        ui.api("DELETE", &format!("/api/mcp/tokens/{id}"), &[], "")
+            .status,
+        404
+    );
+    assert_eq!(initialize(&ui, &[("Authorization", &bearer)]).status, 403);
+    let listed = ui.api("GET", "/api/mcp/clients", &[], "").json();
+    assert_eq!(listed["tokens"], serde_json::json!([]));
+}

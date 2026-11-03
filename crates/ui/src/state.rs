@@ -17,6 +17,10 @@ pub struct State {
     pub dashboard: u16,
     pub handover: AtomicBool,
     pub stop: watch::Sender<bool>,
+    #[cfg(feature = "mcp")]
+    pub clients: mcp::clients::Clients,
+    #[cfg(feature = "mcp")]
+    pub pairing: mcp::clients::Pairing,
 }
 
 impl State {
@@ -34,6 +38,10 @@ impl State {
             dashboard: crate::service::port(),
             handover: AtomicBool::new(false),
             stop: watch::channel(false).0,
+            #[cfg(feature = "mcp")]
+            clients: mcp::clients::Clients::at(&options.home),
+            #[cfg(feature = "mcp")]
+            pairing: mcp::clients::Pairing::default(),
         })
     }
 }

@@ -30,7 +30,7 @@ pub use apps::AppsSubcommand;
 pub use cli::{builtin, run, run_with, Build, Subcommand};
 pub use doctor::DoctorSubcommand;
 #[cfg(feature = "harness")]
-pub use harness::HarnessSubcommand;
+pub use harness::{HarnessSubcommand, SkillSubcommand};
 #[cfg(feature = "mcp")]
 pub use mcp::McpSubcommand;
 #[cfg(feature = "setup")]
@@ -48,6 +48,10 @@ pub fn subcommands(build: Build) -> Vec<Box<dyn Subcommand>> {
             crate::harness::Registry::public(),
             cli::state_dir(build.name),
         )),
+        #[cfg(feature = "harness")]
+        Box::new(SkillSubcommand {
+            registry: crate::harness::Registry::public(),
+        }),
         #[cfg(feature = "vault")]
         Box::new(VaultSubcommand::new(build.name)),
         #[cfg(feature = "setup")]
@@ -80,6 +84,7 @@ mod tests {
             .collect();
         let enabled = [
             ("harness", cfg!(feature = "harness")),
+            ("skill", cfg!(feature = "harness")),
             ("vault", cfg!(feature = "vault")),
             ("setup", cfg!(feature = "setup")),
             ("apps", cfg!(feature = "apps")),

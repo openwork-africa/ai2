@@ -1,6 +1,10 @@
+use crate::clients::{Caller, Clients, Seen};
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
-use rmcp::{tool_handler, ServerHandler};
+use rmcp::model::{
+    Implementation, InitializeRequestParams, InitializeResult, ServerCapabilities, ServerConfig,
+};
+use rmcp::service::RequestContext;
+use rmcp::{tool_handler, ErrorData, RoleServer, ServerHandler};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,6 +12,7 @@ use std::sync::Arc;
 pub struct Pieces {
     pub name: &'static str,
     pub version: &'static str,
+    pub clients: Clients,
     pub reviews: Arc<dyn crate::reviews::Reviews>,
     #[cfg(feature = "harness")]
     pub harness: Arc<dyn crate::harness::Harnesses>,
@@ -28,6 +33,7 @@ impl Pieces {
         Self {
             name,
             version,
+            clients: Clients::at(&home),
             #[cfg(feature = "agents")]
             agents: ::agents::Agents::local(&home, ::harness::Registry::public)
                 .with_review(Arc::new(crate::agents::Reviewing(reviews.clone()))),
@@ -57,6 +63,7 @@ impl Pieces {
 pub struct Server {
     pub(crate) pieces: Pieces,
     tools: ToolRouter<Server>,
+    transport: &'static str,
 }
 
 pub fn tools() -> ToolRouter<Server> {
@@ -83,7 +90,7 @@ fn instructions(name: &str) -> String {
         #[cfg(feature = "harness")]
         format!("harness_* list, install and sign in to coding agents and print their headless command lines; a sign-in that needs a code typed in is done in the CLI or {name} ui."),
         #[cfg(feature = "vault")]
-        format!("vault_* manage the vault, which keeps secrets away from agents: keys are sent only to their approved URLs through the gateway. No tool returns a secret or a token. A change asks the person at the machine (Touch ID); where it cannot, the tool answers presence_required and the change is approved in {name} ui or the CLI. Running a command with keys injected (vault with) is done by the CLI."),
+        format!("vault_* manage the vault, which keeps secrets away from agents: keys are sent only to their approved URLs through the gateway. No tool returns a secret; only vault_create_token returns the token it made, bound to its sandbox, and never its revoke value. A change asks the person at the machine (Touch ID); where it cannot, the tool answers presence_required and the change is approved in {name} ui or the CLI. Running a command with keys injected (vault with) is done by the CLI."),
         #[cfg(feature = "setup")]
         format!("setup_check reports whether this machine is set up for the vault; {name} setup changes it."),
         #[cfg(feature = "apps")]
@@ -100,7 +107,34 @@ impl Server {
     }
 
     pub fn with_tools(pieces: Pieces, tools: ToolRouter<Server>) -> Self {
-        Self { pieces, tools }
+        Self {
+            pieces,
+            tools,
+            transport: "stdio",
+        }
+    }
+
+    pub fn over(mut self, transport: &'static str) -> Self {
+        self.transport = transport;
+        self
+    }
+
+    fn seen(
+        &self,
+        request: &InitializeRequestParams,
+        context: &RequestContext<RoleServer>,
+    ) -> Seen {
+        let token = context
+            .extensions
+            .get::<http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<Caller>())
+            .map(|caller| caller.token.clone());
+        Seen {
+            name: request.client_info.name.clone(),
+            version: request.client_info.version.clone(),
+            transport: self.transport.to_string(),
+            token,
+        }
     }
 
     pub fn tool_list(&self) -> Vec<rmcp::model::Tool> {
@@ -123,5 +157,18 @@ impl ServerHandler for Server {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(self.pieces.name, self.pieces.version))
             .with_instructions(instructions(self.pieces.name))
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let seen = self.seen(&request, &context);
+        let clients = self.pieces.clients.clone();
+        let _ =
+            tokio::task::spawn_blocking(move || clients.record(seen, crate::clients::now())).await;
+        self.negotiate_initialize(&request)
     }
 }

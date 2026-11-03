@@ -2,6 +2,7 @@ import { ExternalLink, FileJson, LayoutGrid, MoreHorizontal, Pencil, Play, Plus,
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiBadge, AppIcon, RemoveDialog, StandingBadge } from "@/components/app-parts";
+import { McpConnect } from "@/components/mcp-connect";
 import { Code, Page, PageHeader } from "@/components/page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -175,6 +176,8 @@ export default function Apps() {
           </div>
         )}
       </PageHeader>
+
+      <McpConnect />
 
       {error && (
         <Alert variant="destructive">

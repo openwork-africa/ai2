@@ -5,6 +5,7 @@ mod bundle;
 mod harnesses;
 #[cfg(feature = "mcp")]
 mod mcp;
+mod mcp_auth;
 mod nonce;
 mod reply;
 pub mod reviews;

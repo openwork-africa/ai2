@@ -60,7 +60,7 @@ pub fn http_service(pieces: Pieces, port: u16) -> HttpService {
         .with_allowed_origins([format!("http://127.0.0.1:{port}")])
         .with_json_response(true);
     StreamableHttpService::new(
-        move || Ok(Server::new(pieces.clone())),
+        move || Ok(Server::new(pieces.clone()).over("http")),
         Arc::new(LocalSessionManager::default()),
         config,
     )
