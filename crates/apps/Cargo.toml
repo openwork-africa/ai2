@@ -1,0 +1,22 @@
+[package]
+name = "apps"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "Local apps: a store of what runs on this machine, their OpenAPI documents, and a supervisor that starts and stops them"
+
+[dependencies]
+anyhow.workspace = true
+base64 = "0.22"
+clap.workspace = true
+libc.workspace = true
+regex.workspace = true
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "process", "sync", "time", "io-util", "macros"] }
+ureq = { version = "3", default-features = false }
+utoipa = "6"
+
+[dev-dependencies]
+tempfile.workspace = true
