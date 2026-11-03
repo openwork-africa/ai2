@@ -94,13 +94,13 @@ Ask the human which they want, or do the one that fits what they are working on.
 For a local app with a web server and an OpenAPI document. Run it in the app's folder:
 
 ```sh
-ai2 apps register --name "Notes" --description "One line on what it is for" --command "deno task start" --openapi /openapi.json
+ai2 apps register --name "Notes" --description "One line on what it is for" --command "deno task start" --openapi /openapi.json --icon favicon.svg
 ```
 
 - `--openapi` is required: a path under the app's URL, or a file.
 - `--port` if ai2 cannot tell the port from the command.
-- `--icon <file>` for a png, svg, ico, webp or jpg.
-- Or the MCP tool `apps_register` with `name`, `description`, `command`, `cwd` (absolute) and `openapi`.
+- `--icon <file>` is required: the app's favicon, a png, svg, ico, webp or jpg up to 512 KiB.
+- Or the MCP tool `apps_register` with `name`, `description`, `command`, `cwd` (absolute), `openapi` and `icon` (its type and base64 bytes).
 
 Then `ai2 apps start <id>` and `ai2 apps status <id>`. Tell the human it is on the **Apps** page of `ai2 ui`.
 

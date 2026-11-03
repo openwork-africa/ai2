@@ -9,7 +9,7 @@ It does three things.
 ### Register an app
 
 ```sh
-ai2 apps register --name Notes --description "Plain notes you can search" --command "deno task start" --openapi /openapi.json
+ai2 apps register --name Notes --description "Plain notes you can search" --command "deno task start" --openapi /openapi.json --icon favicon.svg
 ```
 
 Adds the app in this folder to your list, so you or an agent can start it, stop it and read its API.
@@ -114,7 +114,7 @@ Any other MCP client: `{ "command": "ai2", "args": ["mcp"] }`.
 | --- | --- |
 | `ai2 [flags]` | runs a security review of a folder (flags below) |
 | `ai2 setup [--headless]` | sets up the vault: containers, the master key, the human check, the service |
-| `ai2 apps register\|list\|show\|check\|api\|start\|stop\|restart\|status\|logs\|remove` | your local apps; each needs an OpenAPI document |
+| `ai2 apps register\|list\|show\|check\|api\|start\|stop\|restart\|status\|logs\|remove` | your local apps; each needs an OpenAPI document and an icon |
 | `ai2 vault put\|list\|has\|delete\|rotate\|token\|sandbox\|approvals\|audit\|status\|apply\|migrate\|skill\|with\|ui` | keys, tokens, sandboxes and the gateway |
 | `ai2 harness list\|install\|sign-in\|command` | coding agents (below) |
 | `ai2 ui [--port n] [--no-open] [--tab page]` | the page on `127.0.0.1`; port 7790, or `AI2_UI_PORT`; `--port 0` picks a free one |
