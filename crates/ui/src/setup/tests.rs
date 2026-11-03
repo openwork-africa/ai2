@@ -24,6 +24,7 @@ fn linux_options() -> ::setup::Options {
         label: ::setup::files::LABEL.into(),
         keychain: None,
         admin: "/run/ai2-vault/admin.sock".into(),
+        dashboard: ::setup::files::Dashboard::default(),
     }
 }
 
@@ -158,6 +159,8 @@ fn a_passing_run_reports_every_step_and_asks_for_the_passphrase_once() {
             "presence ready",
             "daemon running",
             "daemon ready",
+            "dashboard running",
+            "dashboard ready",
         ]
     );
     assert_eq!(
@@ -204,6 +207,7 @@ fn a_failing_step_skips_the_rest_and_carries_its_error_and_warnings() {
             "master-key failed",
             "presence skipped",
             "daemon skipped",
+            "dashboard skipped",
         ]
     );
     let failed = events
@@ -386,6 +390,7 @@ fn shown_commands_stream_each_line_into_the_step_log() {
 struct Server {
     host: String,
     nonce: String,
+    state: crate::Shared,
     runtime: Option<tokio::runtime::Runtime>,
     _dir: tempfile::TempDir,
 }
@@ -410,6 +415,7 @@ impl Server {
         Self {
             host: state.host.clone(),
             nonce: state.nonce.clone(),
+            state: state.clone(),
             runtime: Some(runtime),
             _dir: dir,
         }
@@ -546,19 +552,66 @@ fn the_page_starts_setup_answers_over_post_and_resumes_with_last_event_id() {
         "/api/setup/start",
         "/api/setup/events",
         "/api/setup/answer",
+        "/api/setup/dashboard",
+        "/api/setup/handover",
     ] {
         assert!(body.contains(&format!("\"{path}\"")), "{path}");
     }
 }
 
 #[test]
+fn the_dashboard_is_here_elsewhere_or_not_up_yet() {
+    let here = dashboard_of(7797, 7797, || panic!("no need to look"));
+    assert!(here.here && here.url.is_none());
+    let elsewhere = dashboard_of(50123, 7797, || {
+        Some("http://127.0.0.1:7797/?nonce=abc".into())
+    });
+    assert!(!elsewhere.here);
+    assert_eq!(
+        elsewhere.url.as_deref(),
+        Some("http://127.0.0.1:7797/?nonce=abc")
+    );
+    let missing = dashboard_of(50123, 7797, || None);
+    assert!(!missing.here && missing.url.is_none());
+}
+
+#[test]
+fn a_setup_only_server_stops_once_the_page_hands_over_and_the_dashboard_never_does() {
+    let server = Server::start(engine(Host::linux(Some(255)), linux_fresh));
+    let (status, body) = server.call("GET", "/api/setup/dashboard", "");
+    assert_eq!(status, 200);
+    let found: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(found["here"], false);
+    assert_eq!(found["url"], Value::Null);
+
+    let (status, body) = server.call("POST", "/api/setup/handover", "");
+    assert_eq!(status, 202);
+    assert_eq!(body, r#"{"stopping":false}"#);
+    assert!(!*server.state.stop.borrow());
+
+    server.state.handover.store(true, Ordering::SeqCst);
+    let (_, body) = server.call("POST", "/api/setup/handover", "");
+    assert_eq!(body, r#"{"stopping":true}"#);
+    let (_, again) = server.call("POST", "/api/setup/handover", "");
+    assert_eq!(again, r#"{"stopping":false}"#);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !*server.state.stop.borrow() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the server never stopped"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
 fn setup_opens_the_welcome_story_and_a_check_opens_setup() {
     assert_eq!(
-        crate::server::address(7790, "abc", Some(first_page(false))),
-        "http://127.0.0.1:7790/welcome?nonce=abc"
+        crate::server::address(7797, "abc", Some(first_page(false))),
+        "http://127.0.0.1:7797/welcome?nonce=abc"
     );
     assert_eq!(
-        crate::server::address(7790, "abc", Some(first_page(true))),
-        "http://127.0.0.1:7790/setup?nonce=abc"
+        crate::server::address(7797, "abc", Some(first_page(true))),
+        "http://127.0.0.1:7797/setup?nonce=abc"
     );
 }

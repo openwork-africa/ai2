@@ -45,7 +45,7 @@ fn containers(os: &Os) -> StepInfo {
         Os::Linux { .. } if supports_containers(os) => step(
             "containers",
             "Sandboxes",
-            "Each agent run becomes a throwaway systemd unit that can reach only its own vault socket.",
+            "Each sandbox gets its own socket to the vault, and only you and the vault's group can open it.",
             "systemd-run has been making one-off services since systemd 205, in 2013. Here each one gets a socket folder nobody else can open.",
         ),
         _ => step(
@@ -87,7 +87,7 @@ pub fn steps_info(os: &Os) -> Vec<StepInfo> {
             step(
                 "presence",
                 "Human check",
-                "Every change to the vault needs this passphrase, so a process cannot approve itself.",
+                "Every change to the vault needs your login password, or this passphrase if the machine cannot ask for it, so a process cannot approve itself.",
                 "Argon2id won the Password Hashing Competition in 2015. It is slow and hungry for memory on purpose, so guessing is expensive.",
             )
         },
@@ -104,6 +104,21 @@ pub fn steps_info(os: &Os) -> Vec<StepInfo> {
                 "Vault service",
                 "The one process that ever holds a secret, under its own user, with the rest of the system read-only to it.",
                 "ProtectSystem=strict makes the whole filesystem read-only for the service except the two folders it is handed.",
+            )
+        },
+        if mac {
+            step(
+                "dashboard",
+                "Dashboard",
+                "This page starts when you log in and keeps your apps running, at one address you can bookmark.",
+                "A LaunchAgent runs as you, not as root, so the dashboard can reach only what you can. launchd brings it back if it ever stops.",
+            )
+        } else {
+            step(
+                "dashboard",
+                "Dashboard",
+                "This page starts when you log in and keeps your apps running, at one address you can bookmark.",
+                "A systemd user unit starts when you log in and stops when you log out; loginctl enable-linger keeps it up even then.",
             )
         },
     ]

@@ -569,12 +569,12 @@ fn the_command_reads_its_port_and_prints_the_address() {
         .try_get_matches_from(["ui", "--tab", "nowhere"])
         .is_err());
     assert_eq!(
-        crate::server::address(7790, "abc", Some("vault")),
-        "http://127.0.0.1:7790/vault?nonce=abc"
+        crate::server::address(7797, "abc", Some("vault")),
+        "http://127.0.0.1:7797/vault?nonce=abc"
     );
     assert_eq!(
-        crate::server::address(7790, "abc", None),
-        "http://127.0.0.1:7790/?nonce=abc"
+        crate::server::address(7797, "abc", None),
+        "http://127.0.0.1:7797/?nonce=abc"
     );
 }
 
@@ -621,4 +621,81 @@ fn mcp_is_served_under_the_nonce_with_its_openapi_document() {
         .as_array()
         .unwrap()
         .contains(&serde_json::json!("mcp")));
+}
+
+struct Listener {
+    port: u16,
+    seen: Receiver<String>,
+}
+
+impl Listener {
+    fn answering(status: u16, body: &'static str) -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (to, seen) = channel();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => break,
+                    }
+                }
+                if head.is_empty() {
+                    continue;
+                }
+                let _ = to.send(String::from_utf8_lossy(&head).into_owned());
+                let reply = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        Self { port, seen }
+    }
+}
+
+#[test]
+fn a_dashboard_already_listening_is_reused_with_its_nonce() {
+    let home = tempfile::tempdir().unwrap();
+    let nonce = nonce::load(home.path()).unwrap();
+    let dashboard = Listener::answering(200, r#"{"version":"0.1.2","features":["apps"]}"#);
+    let url = crate::service::running(home.path(), dashboard.port, None).unwrap();
+    assert_eq!(
+        url,
+        format!("http://127.0.0.1:{}/?nonce={nonce}", dashboard.port)
+    );
+    let asked = dashboard.seen.recv().unwrap().to_ascii_lowercase();
+    assert!(asked.starts_with("get /api/status "), "{asked}");
+    assert!(
+        asked.contains(&format!("x-ai2-ui-nonce: {nonce}")),
+        "{asked}"
+    );
+    assert_eq!(
+        crate::service::running(home.path(), dashboard.port, Some("vault")).unwrap(),
+        format!("http://127.0.0.1:{}/vault?nonce={nonce}", dashboard.port)
+    );
+}
+
+#[test]
+fn something_else_on_the_port_or_nothing_at_all_is_not_reused() {
+    let home = tempfile::tempdir().unwrap();
+    nonce::load(home.path()).unwrap();
+    let refusing = Listener::answering(403, r#"{"error":"forbidden"}"#);
+    assert!(crate::service::running(home.path(), refusing.port, None).is_none());
+    let stranger = Listener::answering(200, r#"{"hello":"world"}"#);
+    assert!(crate::service::running(home.path(), stranger.port, None).is_none());
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = free.local_addr().unwrap().port();
+    drop(free);
+    assert!(crate::service::running(home.path(), port, None).is_none());
+    assert!(crate::service::running(home.path(), 0, None).is_none());
+    let fresh = tempfile::tempdir().unwrap();
+    let dashboard = Listener::answering(200, r#"{"version":"0.1.2","features":["apps"]}"#);
+    assert!(crate::service::running(fresh.path(), dashboard.port, None).is_none());
+    assert!(!nonce::path(fresh.path()).exists());
 }

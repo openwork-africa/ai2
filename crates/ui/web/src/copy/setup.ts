@@ -1,8 +1,8 @@
 export type Branch = "macos" | "linux" | "unsupported";
-export type StepId = "containers" | "master-key" | "presence" | "daemon";
+export type StepId = "containers" | "master-key" | "presence" | "daemon" | "dashboard";
 export type StepCopy = { title: string; why: string; fact: string };
 
-export const STEPS: StepId[] = ["containers", "master-key", "presence", "daemon"];
+export const STEPS: StepId[] = ["containers", "master-key", "presence", "daemon", "dashboard"];
 
 const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
   containers: {
@@ -13,7 +13,7 @@ const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
     },
     linux: {
       title: "Sandboxes",
-      why: "Each agent run becomes a throwaway systemd unit that can reach only its own vault socket.",
+      why: "Each sandbox gets its own socket to the vault, and only you and the vault's group can open it.",
       fact: "`systemd-run` has been making one-off services since systemd 205, in 2013. Here each one gets a socket folder nobody else can open.",
     },
     unsupported: {
@@ -42,7 +42,7 @@ const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
     },
     linux: {
       title: "Only you",
-      why: "Every change to the vault needs this passphrase. No process can say yes on your behalf.",
+      why: "Every change to the vault needs your login password, or this passphrase if the machine can't ask for it. No process can say yes on your behalf.",
       fact: "Argon2id won the Password Hashing Competition in 2015. It is slow and hungry for memory on purpose, so guessing is expensive.",
     },
   },
@@ -56,6 +56,18 @@ const copy: Record<StepId, Partial<Record<Branch, StepCopy>>> = {
       title: "Vault service",
       why: "The only process that ever holds a key. It runs under its own user and sees the rest of the system as read-only.",
       fact: "`ProtectSystem=strict` makes the whole filesystem read-only for the service except the two folders it is handed.",
+    },
+  },
+  dashboard: {
+    macos: {
+      title: "Dashboard",
+      why: "This page starts when you log in and keeps your apps running, at one address you can bookmark.",
+      fact: "A LaunchAgent runs as you, not as root, so the dashboard can reach only what you can. `launchd` brings it back if it ever stops.",
+    },
+    linux: {
+      title: "Dashboard",
+      why: "This page starts when you log in and keeps your apps running, at one address you can bookmark.",
+      fact: "A systemd user unit starts when you log in and stops when you log out; `loginctl enable-linger` keeps it up even then.",
     },
   },
 };

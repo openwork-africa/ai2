@@ -9,7 +9,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub type HttpService = StreamableHttpService<Server, LocalSessionManager>;
 
-pub const DEFAULT_SERVER: &str = "http://127.0.0.1:7790/mcp";
+pub const DEFAULT_SERVER: &str = "http://127.0.0.1:7797/mcp";
 
 pub fn command() -> clap::Command {
     clap::Command::new("mcp")

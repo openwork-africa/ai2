@@ -46,7 +46,7 @@ fn in_the_browser(_name: &'static str, options: setup::Options) -> Result<bool> 
     setup::headless(&options, false)
 }
 
-pub fn rows(name: &'static str) -> Vec<Row> {
+pub fn rows(name: &'static str, version: &str) -> Vec<Row> {
     let report = std::env::current_exe()
         .map_err(anyhow::Error::from)
         .and_then(|bin| {
@@ -54,8 +54,80 @@ pub fn rows(name: &'static str) -> Vec<Row> {
                 .map(|(_, report)| report)
         });
     let mut rows = steps_rows(name, &report);
+    if let (Ok(report), Some(row)) = (&report, rows.iter_mut().find(|row| row.check == DASHBOARD)) {
+        let step = &report["steps"][DASHBOARD];
+        let port = step["port"]
+            .as_u64()
+            .and_then(|port| u16::try_from(port).ok());
+        let answer = port.map(|port| answer(name, port)).unwrap_or_default();
+        *row = dashboard_row(name, step, &answer, version);
+    }
     rows.push(admin_socket(name));
     rows
+}
+
+pub const DASHBOARD: &str = "dashboard";
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Answer {
+    pub listening: bool,
+    pub version: Option<String>,
+}
+
+#[cfg(feature = "apps")]
+fn answer(name: &str, port: u16) -> Answer {
+    let home = crate::cli::state_dir(name);
+    Answer {
+        listening: apps::port::listening(port),
+        version: apps::Ui::find(&home, port)
+            .and_then(|ui| ui.call("GET", "/api/status").ok())
+            .and_then(|status| status["version"].as_str().map(String::from)),
+    }
+}
+
+#[cfg(not(feature = "apps"))]
+fn answer(_name: &str, _port: u16) -> Answer {
+    Answer::default()
+}
+
+pub fn dashboard_row(name: &str, step: &Value, answer: &Answer, client: &str) -> Row {
+    if step["status"].as_str() != Some("ready") {
+        return step_row(name, DASHBOARD, step);
+    }
+    let port = step["port"]
+        .as_u64()
+        .unwrap_or(u64::from(setup::files::UI_PORT));
+    let address = format!("http://127.0.0.1:{port}");
+    let restart = step["restart"]
+        .as_str()
+        .map_or_else(|| format!("run {name} setup"), |line| format!("run {line}"));
+    if !answer.listening {
+        return Row::fail(
+            DASHBOARD,
+            format!("the service is loaded, but nothing answers on {address}"),
+        )
+        .fix(restart);
+    }
+    let Some(running) = &answer.version else {
+        return Row::fail(
+            DASHBOARD,
+            format!("something answers on {address}, but it is not the ai2 dashboard"),
+        )
+        .fix(format!(
+            "stop what holds port {port}, or set AI2_UI_PORT to another port and run {name} setup"
+        ));
+    };
+    if running != client {
+        return Row::warn(
+            DASHBOARD,
+            format!("listening on {address}, but it runs {running} and this binary is {client}"),
+        )
+        .fix(format!("{restart} so the dashboard starts on {client}"));
+    }
+    Row::ok(
+        DASHBOARD,
+        format!("loaded and listening on {address}, version {running}"),
+    )
 }
 
 pub fn steps_rows(name: &str, report: &Result<Value>) -> Vec<Row> {
@@ -213,6 +285,7 @@ mod tests {
             "containers": { "status": "unsupported", "runtime": null, "reason": "needs macOS 26", "warnings": ["Not safe"] },
             "master-key": { "status": "ready", "store": "keychain" },
             "presence": { "status": "unknown", "reason": "needs sudo" },
+            "dashboard": { "status": "ready", "loaded": true, "port": 7797 },
         }}));
         let rows = steps_rows("ai2", &report);
         let shape: Vec<_> = rows
@@ -238,10 +311,69 @@ mod tests {
                     "status: missing, written: false, loaded: false",
                     true
                 ),
+                ("dashboard", State::Ok, "loaded: true, port: 7797", false),
             ]
         );
         let failed = steps_rows("ai2", &Err(anyhow!("no keychain")));
         assert!(failed.iter().all(|r| r.state == State::Fail));
+    }
+
+    #[test]
+    fn the_dashboard_row_needs_the_service_loaded_listening_and_on_this_version() {
+        let ready = json!({
+            "status": "ready", "written": true, "loaded": true, "port": 7797,
+            "restart": "launchctl kickstart -k gui/501/africa.openwork.ai2-ui",
+        });
+        let up = |version: Option<&str>| Answer {
+            listening: true,
+            version: version.map(String::from),
+        };
+        let row = dashboard_row("ai2", &ready, &up(Some("0.1.2")), "0.1.2");
+        assert_eq!(row.check, "dashboard");
+        assert_eq!(row.state, State::Ok);
+        assert_eq!(
+            row.detail,
+            "loaded and listening on http://127.0.0.1:7797, version 0.1.2"
+        );
+        assert!(row.fix.is_none());
+
+        let old = dashboard_row("ai2", &ready, &up(Some("0.1.1")), "0.1.2");
+        assert_eq!(old.state, State::Warn);
+        assert_eq!(
+            old.detail,
+            "listening on http://127.0.0.1:7797, but it runs 0.1.1 and this binary is 0.1.2"
+        );
+        assert_eq!(
+            old.fix.as_deref(),
+            Some("run launchctl kickstart -k gui/501/africa.openwork.ai2-ui so the dashboard starts on 0.1.2")
+        );
+
+        let silent = dashboard_row("ai2", &ready, &Answer::default(), "0.1.2");
+        assert_eq!(silent.state, State::Fail);
+        assert!(silent
+            .detail
+            .contains("nothing answers on http://127.0.0.1:7797"));
+        assert_eq!(
+            silent.fix.as_deref(),
+            Some("run launchctl kickstart -k gui/501/africa.openwork.ai2-ui")
+        );
+
+        let stranger = dashboard_row("ai2", &ready, &up(None), "0.1.2");
+        assert_eq!(stranger.state, State::Fail);
+        assert!(stranger.detail.contains("not the ai2 dashboard"));
+        assert!(stranger.fix.unwrap().contains("AI2_UI_PORT"));
+
+        let missing =
+            json!({ "status": "missing", "written": false, "loaded": false, "port": 7797 });
+        let row = dashboard_row("ai2", &missing, &up(Some("0.1.2")), "0.1.2");
+        assert_eq!(row.state, State::Fail);
+        assert_eq!(row.fix.as_deref(), Some("run ai2 setup"));
+        assert!(row.detail.contains("loaded: false"));
+
+        let unsupported = json!({ "status": "unsupported" });
+        let row = dashboard_row("ai2", &unsupported, &Answer::default(), "0.1.2");
+        assert_eq!(row.state, State::Warn);
+        assert!(row.fix.is_none());
     }
 
     #[test]

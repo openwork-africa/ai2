@@ -5,7 +5,7 @@ use std::io::BufRead;
 use std::path::Path;
 use std::time::Duration;
 
-pub const DEFAULT_PORT: u16 = 7790;
+pub const DEFAULT_PORT: u16 = 7797;
 const NONCE_HEADER: &str = "X-Ai2-UI-Nonce";
 
 pub struct Ui {

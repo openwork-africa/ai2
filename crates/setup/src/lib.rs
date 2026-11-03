@@ -27,6 +27,7 @@ pub struct Options {
     pub label: String,
     pub keychain: Option<PathBuf>,
     pub admin: PathBuf,
+    pub dashboard: files::Dashboard,
 }
 
 impl Options {
@@ -40,6 +41,7 @@ impl Options {
             home,
             label: files::label(std::env::var(files::LABEL_ENV).ok()),
             keychain: keys::keychain_file(std::env::var_os(keys::KEYCHAIN_ENV)),
+            dashboard: files::Dashboard::from_env(),
         }
     }
 }
@@ -140,6 +142,7 @@ pub fn all() -> Vec<Box<dyn Step>> {
         Box::new(steps::MasterKeyStep),
         Box::new(steps::PresenceStep),
         Box::new(steps::Daemon),
+        Box::new(steps::DashboardStep),
     ]
 }
 
@@ -188,7 +191,7 @@ pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
 
 pub fn command() -> clap::Command {
     clap::Command::new("setup")
-        .about("Sets this machine up for the vault: containers, the master key, a human check and the daemon")
+        .about("Sets this machine up for the vault: containers, the master key, a human check, the daemon and the dashboard")
         .arg(
             clap::Arg::new("headless")
                 .long("headless")

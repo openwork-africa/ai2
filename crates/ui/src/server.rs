@@ -40,9 +40,13 @@ impl Server {
 
     pub async fn serve(self) -> Result<()> {
         let (router, _) = routes::router(self.state.clone());
+        let mut stop = self.state.stop.subscribe();
         axum::serve(self.listener, router)
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
+            .with_graceful_shutdown(async move {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = stop.wait_for(|stopped| *stopped) => {}
+                }
             })
             .await
             .context("serving the ui")
