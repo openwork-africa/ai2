@@ -3,6 +3,7 @@ mod bundle;
 mod harnesses;
 mod nonce;
 mod reply;
+pub mod reviews;
 mod routes;
 mod security;
 mod server;
