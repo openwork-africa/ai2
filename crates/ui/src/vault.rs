@@ -98,6 +98,7 @@ pub fn allowed(method: &str, path: &str) -> bool {
             | ("GET", ["approvals"])
             | ("POST", ["approvals", _])
             | ("GET", ["audit"])
+            | ("POST", ["batch"])
     )
 }
 
@@ -107,4 +108,16 @@ fn segment(part: &str) -> bool {
 
 fn safe_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"-._~%=&".contains(&byte)
+}
+
+#[cfg(test)]
+mod allow_list {
+    use super::allowed;
+
+    #[test]
+    fn batch_is_allowed_only_as_a_post() {
+        assert!(allowed("POST", "batch"));
+        assert!(!allowed("GET", "batch"));
+        assert!(!allowed("POST", "batch/x"));
+    }
 }

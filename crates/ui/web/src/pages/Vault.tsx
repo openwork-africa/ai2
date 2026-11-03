@@ -1,8 +1,32 @@
-import { KeyRound } from "lucide-react";
+import { Box, Inbox, KeyRound, ScrollText, Ticket } from "lucide-react";
+import { useSearchParams } from "react-router";
 import { Code, Dot, Page, PageHeader } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Tabs, TabsContent, TabsList, TabsTrigger, TabsTriggerCount } from "@/components/ui/tabs";
+import { Toaster } from "@/components/ui/toast";
 import { useStatus } from "@/hooks/use-status";
+import { useApprovals, useVaultStatus } from "@/hooks/use-vault";
+import { isMac } from "@/lib/vault";
+import Approvals from "@/pages/vault/Approvals";
+import Audit from "@/pages/vault/Audit";
+import Keys from "@/pages/vault/Keys";
+import { Pending } from "@/pages/vault/Pending";
+import { Presence } from "@/pages/vault/Presence";
+import Sandboxes from "@/pages/vault/Sandboxes";
+import Tokens from "@/pages/vault/Tokens";
+
+const TABS = [
+  { value: "keys", label: "Keys", icon: KeyRound },
+  { value: "tokens", label: "Tokens", icon: Ticket },
+  { value: "sandboxes", label: "Sandboxes", icon: Box },
+  { value: "approvals", label: "Approvals", icon: Inbox },
+  { value: "audit", label: "Audit", icon: ScrollText },
+] as const;
+
+type Tab = (typeof TABS)[number]["value"];
+
+const isTab = (value: string | null): value is Tab => TABS.some((tab) => tab.value === value);
 
 export default function Vault() {
   const { status } = useStatus();
@@ -36,6 +60,59 @@ export default function Vault() {
           </EmptyContent>
         </Empty>
       )}
+      {vault?.reachable && <Live />}
     </Page>
+  );
+}
+
+function Live() {
+  const [params, setParams] = useSearchParams();
+  const asked = params.get("tab");
+  const tab: Tab = isTab(asked) ? asked : "keys";
+  const { data } = useVaultStatus();
+  const mac = isMac(data?.platform);
+  const waiting = useApprovals().approvals?.length ?? 0;
+
+  return (
+    <>
+      <Tabs
+        value={tab}
+        onValueChange={(details) =>
+          setParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.set("tab", details.value);
+              return next;
+            },
+            { replace: true },
+          )
+        }
+        className="gap-6"
+      >
+        <div className="-mx-5 overflow-x-auto px-5 md:mx-0 md:px-0">
+          <TabsList>
+            {TABS.map((entry) => (
+              <TabsTrigger key={entry.value} value={entry.value} className="gap-1.5 px-3">
+                <entry.icon />
+                {entry.label}
+                {entry.value === "approvals" && waiting > 0 && (
+                  <TabsTriggerCount className="rounded-full bg-primary px-1.5 text-2xs text-primary-foreground">
+                    {waiting}
+                  </TabsTriggerCount>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        <TabsContent value="keys">{tab === "keys" && <Keys />}</TabsContent>
+        <TabsContent value="tokens">{tab === "tokens" && <Tokens mac={mac} />}</TabsContent>
+        <TabsContent value="sandboxes">{tab === "sandboxes" && <Sandboxes />}</TabsContent>
+        <TabsContent value="approvals">{tab === "approvals" && <Approvals />}</TabsContent>
+        <TabsContent value="audit">{tab === "audit" && <Audit />}</TabsContent>
+      </Tabs>
+      <Pending />
+      <Presence />
+      <Toaster />
+    </>
   );
 }

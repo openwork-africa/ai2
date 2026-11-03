@@ -61,6 +61,7 @@ export function Shell() {
                         <span>{entry.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {entry.badge && <entry.badge reachable={Boolean(vault?.reachable)} />}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
