@@ -1,20 +1,28 @@
+mod cli;
 mod error;
 pub mod icon;
+mod logs;
 mod model;
 pub mod openapi;
 pub mod port;
+mod process;
 mod store;
+mod supervisor;
 mod time;
+mod ui;
 
 #[cfg(test)]
 mod tests;
 
+pub use cli::{command, run, Options};
 pub use error::{Problem, Result};
+pub use logs::RING;
 pub use model::{
     Api, ApiState, App, AppEvent, AppPatch, Exit, Icon, IconUpload, LogLine, NewApp, Restart,
     Shown, Status, Stream,
 };
 pub use store::{href, slug, Running, Store, LOG_LIMIT};
+pub use supervisor::{listening, Settings, Supervisor};
 
 impl NewApp {
     pub fn parse(value: serde_json::Value) -> Result<NewApp> {
