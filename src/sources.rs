@@ -2,7 +2,7 @@ use crate::scan::Spec;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 const OSV_BATCH: &str = "https://api.osv.dev/v1/querybatch";
 const OSV_VULN: &str = "https://api.osv.dev/v1/vulns/";
@@ -240,38 +240,7 @@ pub fn filter_kev(feed: &Value, spec: &Spec, since: &str) -> Vec<Advisory> {
 }
 
 fn date_days_ago(days: u64) -> String {
-    let (y, m, d) = civil((seconds() / 86_400).saturating_sub(days) as i64);
-    format!("{y:04}-{m:02}-{d:02}T00:00:00Z")
-}
-
-pub fn now() -> String {
-    let s = seconds();
-    let (y, m, d) = civil((s / 86_400) as i64);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        s % 86_400 / 3_600,
-        s % 3_600 / 60,
-        s % 60
-    )
-}
-
-fn seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn civil(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
+    vault::time::rfc3339((vault::time::now() / 86_400).saturating_sub(days) * 86_400)
 }
 
 #[cfg(test)]
@@ -358,8 +327,11 @@ mod tests {
 
     #[test]
     fn dates_compare_as_text() {
-        assert_eq!(civil(0), (1970, 1, 1));
-        assert_eq!(civil(20_759), (2026, 11, 2));
+        assert_eq!(date_days_ago(0).len(), 20);
+        assert_eq!(
+            vault::time::rfc3339(20_759 * 86_400),
+            "2026-11-02T00:00:00Z"
+        );
         assert!(date_days_ago(7) < date_days_ago(0));
         assert!("2026-11-01T10:00:00Z" >= "2026-10-26T00:00:00Z");
     }

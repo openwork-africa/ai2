@@ -1,0 +1,24 @@
+[package]
+name = "vault"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "Keeps secrets away from agents: an encrypted store and a gateway that injects them"
+
+[dependencies]
+anyhow.workspace = true
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+clap.workspace = true
+getrandom = "0.3"
+httparse = "1"
+keys = { path = "../keys" }
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

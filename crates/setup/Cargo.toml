@@ -1,0 +1,17 @@
+[package]
+name = "setup"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "Sets a machine up for the vault: containers, the master key, presence and the daemon"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+keys = { path = "../keys", version = "0.1.0" }
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

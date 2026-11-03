@@ -1,0 +1,29 @@
+{
+  "name": "@ai2/vault",
+  "version": "0.1.0",
+  "description": "Call APIs through the ai2 vault gateway without holding their keys",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": ["index.js", "index.d.ts", "README.md"],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openwork-africa/ai2.git",
+    "directory": "sdk/js"
+  },
+  "scripts": {
+    "test": "node --test test/vault.test.js",
+    "test:bun": "bun test ./test/vault.test.js",
+    "test:deno": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys test/vault.test.js"
+  }
+}

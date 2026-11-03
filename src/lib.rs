@@ -8,6 +8,8 @@ pub mod scan;
 pub mod sources;
 pub mod step;
 pub mod steps;
+pub mod vault;
 
 pub use cli::{builtin, run, run_with, Build, HarnessSubcommand, Subcommand};
 pub use step::{Context, Found, Item, Rated, Run, Step};
+pub use vault::{SetupSubcommand, VaultSubcommand};
