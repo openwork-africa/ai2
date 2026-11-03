@@ -1,5 +1,5 @@
 use crate::crypto;
-use crate::daemon::Vault;
+use crate::daemon::{Absent, Vault};
 use crate::http::{self, Request};
 use crate::inject::{self, Inject};
 use crate::policy;
@@ -19,6 +19,7 @@ pub struct Failure {
     status: u16,
     code: &'static str,
     message: String,
+    seconds: Option<u64>,
 }
 
 type Reply = Result<Value, Failure>;
@@ -28,6 +29,7 @@ fn fail(status: u16, code: &'static str, message: impl Into<String>) -> Failure 
         status,
         code,
         message: message.into(),
+        seconds: None,
     }
 }
 
@@ -72,19 +74,38 @@ pub fn route(vault: &Arc<Vault>, request: &Request, caller: &Caller) -> (u16, Va
     };
     match reply {
         Ok(value) => (200, value),
-        Err(failure) => (failure.status, http::error(failure.code, &failure.message)),
+        Err(failure) => {
+            let mut body = http::error(failure.code, &failure.message);
+            if let Some(seconds) = failure.seconds {
+                body["seconds"] = json!(seconds);
+            }
+            (failure.status, body)
+        }
     }
 }
 
 fn present(vault: &Vault, request: &Request, caller: &Caller, action: &str) -> Result<(), Failure> {
-    if vault.present(request, caller, action) {
-        return Ok(());
-    }
-    Err(fail(
-        401,
-        "presence_required",
-        format!("{action}: needs you present"),
-    ))
+    vault
+        .present(request, caller, action)
+        .map_err(|absent| match absent {
+            Absent::No => fail(
+                401,
+                "presence_required",
+                format!("{action}: needs you present"),
+            ),
+            Absent::Busy => fail(409, "busy", "another vault prompt is open; answer it first"),
+            Absent::Throttled(left) => {
+                let seconds = left.as_millis().div_ceil(1000) as u64;
+                Failure {
+                    seconds: Some(seconds),
+                    ..fail(
+                        429,
+                        "throttled",
+                        format!("too many refused prompts: try again in {seconds}s"),
+                    )
+                }
+            }
+        })
 }
 
 fn listed(items: &[String]) -> String {

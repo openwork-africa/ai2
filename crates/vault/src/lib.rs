@@ -5,6 +5,7 @@ mod client;
 pub mod crypto;
 mod daemon;
 mod gateway;
+mod guard;
 pub mod http;
 mod inject;
 mod policy;

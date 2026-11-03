@@ -95,6 +95,7 @@ struct Gate {
     present: std::sync::atomic::AtomicBool,
     asked: Mutex<Vec<String>>,
     callers: Mutex<Vec<Caller>>,
+    delay: Mutex<Duration>,
 }
 
 struct Door(Arc<Gate>);
@@ -103,6 +104,8 @@ impl Presence for Door {
     fn confirm(&self, action: &str, caller: &Caller, _passphrase: Option<&str>) -> Result<bool> {
         self.0.asked.lock().unwrap().push(action.to_string());
         self.0.callers.lock().unwrap().push(*caller);
+        let delay = *self.0.delay.lock().unwrap();
+        std::thread::sleep(delay);
         Ok(self.0.present.load(Ordering::SeqCst))
     }
 
@@ -133,6 +136,14 @@ fn start(present: bool, vetter: Box<dyn Vetter>) -> Test {
 }
 
 fn start_owned(present: bool, vetter: Box<dyn Vetter>, owners: Option<Vec<u32>>) -> Test {
+    start_with(present, vetter, |config| {
+        if let Some(owners) = owners {
+            config.owners = owners;
+        }
+    })
+}
+
+fn start_with(present: bool, vetter: Box<dyn Vetter>, tweak: impl FnOnce(&mut Config)) -> Test {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().join("v");
     let admin = state.join("admin.sock");
@@ -140,9 +151,8 @@ fn start_owned(present: bool, vetter: Box<dyn Vetter>, owners: Option<Vec<u32>>)
     config.sockets = dir.path().join("s");
     config.allow_http = true;
     config.approval_timeout = Duration::from_millis(400);
-    if let Some(owners) = owners {
-        config.owners = owners;
-    }
+    config.throttle = Duration::ZERO;
+    tweak(&mut config);
     let master = MemoryKey::default();
     master.create().unwrap();
     let gate = Arc::new(Gate::default());
@@ -856,4 +866,52 @@ fn the_cli_talks_to_the_daemon_and_hands_back_extra_subcommands() {
             "app"
         ])
         .is_err());
+}
+
+#[test]
+fn refused_prompts_slow_down_and_only_one_is_open_at_a_time() {
+    let test = Arc::new(start_with(false, Box::new(NoVetter), |config| {
+        config.throttle = Duration::from_millis(300);
+        config.throttle_limit = Duration::from_millis(500);
+    }));
+    let put = |test: &Test| {
+        admin(
+            test,
+            "PUT",
+            "/keys/svc",
+            json!({ "secret": SECRET, "approved_urls": ["https://h.example/"] }),
+        )
+    };
+    assert_eq!(put(&test).0, 401);
+    let (status, value) = put(&test);
+    assert_eq!(
+        (status, value["error"].as_str(), value["seconds"].as_u64()),
+        (429, Some("throttled"), Some(1))
+    );
+    assert_eq!(test.gate.asked.lock().unwrap().len(), 1);
+    std::thread::sleep(Duration::from_millis(350));
+    assert_eq!(put(&test).0, 401);
+    std::thread::sleep(Duration::from_millis(350));
+    assert_eq!(put(&test).0, 429);
+    std::thread::sleep(Duration::from_millis(200));
+
+    test.gate.present.store(true, Ordering::SeqCst);
+    *test.gate.delay.lock().unwrap() = Duration::from_millis(400);
+    let first = {
+        let test = Arc::clone(&test);
+        std::thread::spawn(move || put(&test).0)
+    };
+    while test.gate.asked.lock().unwrap().len() < 3 {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let (status, value) = admin(&test, "DELETE", "/sandboxes/none", json!({}));
+    assert_eq!((status, value["error"].as_str()), (404, Some("not_found")));
+    let (status, value) = admin(&test, "POST", "/sandboxes", json!({ "name": "box" }));
+    assert_eq!((status, value["error"].as_str()), (409, Some("busy")));
+    assert_eq!(first.join().unwrap(), 200);
+    *test.gate.delay.lock().unwrap() = Duration::ZERO;
+    test.gate.present.store(false, Ordering::SeqCst);
+    assert_eq!(put(&test).0, 401);
+    let (_, value) = put(&test);
+    assert_eq!(value["seconds"].as_u64(), Some(1));
 }

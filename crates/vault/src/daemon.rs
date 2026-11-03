@@ -1,5 +1,6 @@
 use crate::approvals::Approvals;
 use crate::crypto;
+use crate::guard::{self, Guard, Refusal};
 use crate::http::{self, Request};
 use crate::store::{Endpoint, Store};
 use crate::vet::Vetter;
@@ -32,6 +33,8 @@ pub struct Config {
     pub allow_http: bool,
     pub approval_timeout: Duration,
     pub owners: Vec<u32>,
+    pub throttle: Duration,
+    pub throttle_limit: Duration,
 }
 
 impl Config {
@@ -53,6 +56,8 @@ impl Config {
             allow_http: false,
             approval_timeout: Duration::from_secs(120),
             owners: vec![unsafe { libc::geteuid() }],
+            throttle: guard::BASE,
+            throttle_limit: guard::LIMIT,
         }
     }
 }
@@ -69,6 +74,13 @@ pub struct Vault {
     listeners: Mutex<HashMap<String, Listener>>,
     pub agent: ureq::Agent,
     refused_at: Mutex<Option<Instant>>,
+    guard: Guard,
+}
+
+pub enum Absent {
+    No,
+    Busy,
+    Throttled(Duration),
 }
 
 struct Listener {
@@ -106,7 +118,9 @@ pub fn start(
         .timeout_recv_response(Some(Duration::from_secs(300)))
         .build()
         .new_agent();
+    let guard = Guard::new(config.throttle, config.throttle_limit);
     let vault = Arc::new(Vault {
+        guard,
         config,
         platform,
         vetter: OnceLock::new(),
@@ -197,12 +211,25 @@ impl Vault {
         crypto::open(&*self.master()?, name, &sealed)
     }
 
-    pub fn present(&self, request: &Request, caller: &Caller, action: &str) -> bool {
+    pub fn present(&self, request: &Request, caller: &Caller, action: &str) -> Result<(), Absent> {
+        let turn = self
+            .guard
+            .enter(Instant::now())
+            .map_err(|refusal| match refusal {
+                Refusal::Busy => Absent::Busy,
+                Refusal::Throttled(left) => Absent::Throttled(left),
+            })?;
         let passphrase = request.header("x-vault-passphrase");
-        matches!(
+        let confirmed = matches!(
             self.platform.presence.confirm(action, caller, passphrase),
             Ok(true)
-        )
+        );
+        turn.finish(confirmed, Instant::now());
+        if confirmed {
+            Ok(())
+        } else {
+            Err(Absent::No)
+        }
     }
 
     pub fn presence_kind(&self) -> &'static str {
