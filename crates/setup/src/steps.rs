@@ -1,3 +1,4 @@
+use crate::admin::HOST_SANDBOX;
 use crate::files::{self, ADMIN_GROUP, SERVICE_BIN, UNIT, UNIT_PATH, USER};
 use crate::host::Os;
 use crate::runner::{Cmd, Ran};
@@ -338,11 +339,9 @@ impl Step for PresenceStep {
         }
         ctx.runner
             .say("choose the vault passphrase; it is asked for every change to the vault");
-        let first = ctx.runner.ask_hidden("Vault passphrase: ")?;
-        let again = ctx.runner.ask_hidden("The same again: ")?;
-        if first != again {
-            bail!("the two passphrases differ");
-        }
+        let first = ctx
+            .runner
+            .ask_passphrase("Vault passphrase: ", "The same again: ")?;
         let hashed = keys::passphrase::hash(&first)?;
         must(
             ctx.runner
@@ -563,5 +562,65 @@ impl Step for Daemon {
             Os::Linux { .. } => self.linux_apply(ctx, checked),
             Os::Other { .. } => Ok(checked.clone()),
         }
+    }
+
+    fn settled(&self, ctx: &Context, state: State) -> Result<State> {
+        if !state.is_ready() {
+            return Ok(state);
+        }
+        Ok(host_sandbox(ctx, state))
+    }
+}
+
+pub const HOST_PROMPT: &str = "Vault passphrase, to add the sandbox host and nothing else: ";
+
+fn host_sandbox(ctx: &Context, state: State) -> State {
+    let skipped = |state: State, why: String| {
+        state.with("host_sandbox", "skipped").warn(&format!(
+            "The vault sandbox {HOST_SANDBOX} was not made: {why}. Run ai2 setup again later, or ai2 vault sandbox add --name {HOST_SANDBOX}."
+        ))
+    };
+    match ctx.admin.sandboxes() {
+        Ok(names) if names.iter().any(|name| name == HOST_SANDBOX) => {
+            return state.with("host_sandbox", "present")
+        }
+        Ok(_) => {}
+        Err(error) => {
+            return skipped(
+                state,
+                format!("the vault's admin API is not reachable ({error:#})"),
+            )
+        }
+    }
+    let passphrase = match ctx.host.os {
+        Os::Linux { .. } => {
+            ctx.runner.say(&format!(
+                "adding the vault sandbox {HOST_SANDBOX}, for apps that run on this machine; the vault asks for its passphrase for this one change"
+            ));
+            match ctx.runner.ask_hidden(HOST_PROMPT) {
+                Ok(passphrase) => Some(zeroize::Zeroizing::new(passphrase)),
+                Err(error) => return skipped(state, format!("{error:#}")),
+            }
+        }
+        _ => {
+            ctx.runner.say(&format!(
+                "adding the vault sandbox {HOST_SANDBOX}, for apps that run on this machine; the vault asks for Touch ID or your password for this one change"
+            ));
+            None
+        }
+    };
+    match ctx
+        .admin
+        .add_sandbox(HOST_SANDBOX, passphrase.as_ref().map(|p| p.as_str()))
+    {
+        Ok((200..=299, _)) => state.with("host_sandbox", "created"),
+        Ok((status, value)) => skipped(
+            state,
+            format!(
+                "the vault answered {status}: {}",
+                value["message"].as_str().unwrap_or("no message")
+            ),
+        ),
+        Err(error) => skipped(state, format!("{error:#}")),
     }
 }

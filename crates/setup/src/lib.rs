@@ -1,13 +1,17 @@
+pub mod admin;
 pub mod files;
 pub mod host;
+pub mod info;
 pub mod runner;
 pub mod sandbox;
 pub mod steps;
 #[cfg(test)]
 mod tests;
 
+use admin::Admin;
 use anyhow::Result;
 use host::Host;
+pub use info::{inputs_info, steps_info, Field, InputInfo, StepInfo};
 use keys::MasterKey;
 use runner::{Runner, System};
 use serde::Serialize;
@@ -24,14 +28,17 @@ pub struct Options {
     pub state: PathBuf,
     pub label: String,
     pub keychain: Option<PathBuf>,
+    pub admin: PathBuf,
 }
 
 impl Options {
     pub fn new(bin: impl Into<PathBuf>, home: impl Into<PathBuf>) -> Self {
         let home = home.into();
+        let state = default_state(&home);
         Self {
             bin: bin.into(),
-            state: default_state(&home),
+            admin: admin::default_admin(&state),
+            state,
             home,
             label: files::label(std::env::var(files::LABEL_ENV).ok()),
             keychain: keys::keychain_file(std::env::var_os(keys::KEYCHAIN_ENV)),
@@ -114,6 +121,7 @@ pub struct Context<'a> {
     pub options: &'a Options,
     pub runner: &'a dyn Runner,
     pub master: &'a dyn MasterKey,
+    pub admin: &'a dyn Admin,
     pub presence: &'a dyn Fn() -> Result<bool>,
     pub check_only: bool,
 }
@@ -122,6 +130,10 @@ pub trait Step {
     fn id(&self) -> &'static str;
     fn check(&self, ctx: &Context) -> Result<State>;
     fn apply(&self, ctx: &Context, checked: &State) -> Result<State>;
+
+    fn settled(&self, _ctx: &Context, state: State) -> Result<State> {
+        Ok(state)
+    }
 }
 
 pub fn all() -> Vec<Box<dyn Step>> {
@@ -135,10 +147,15 @@ pub fn all() -> Vec<Box<dyn Step>> {
 
 fn settles(step: &dyn Step, ctx: &Context) -> Result<State> {
     let checked = step.check(ctx)?;
-    if ctx.check_only || matches!(checked.status, Status::Ready | Status::Unsupported) {
+    if ctx.check_only || checked.status == Status::Unsupported {
         return Ok(checked);
     }
-    step.apply(ctx, &checked)
+    let state = if checked.is_ready() {
+        checked
+    } else {
+        step.apply(ctx, &checked)?
+    };
+    step.settled(ctx, state)
 }
 
 pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
@@ -149,6 +166,7 @@ pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
         let state = if stopped {
             State::new(Status::Skipped)
         } else {
+            ctx.runner.step_started(step.id());
             match settles(step.as_ref(), ctx) {
                 Ok(state) => state,
                 Err(error) => {
@@ -157,6 +175,7 @@ pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
                 }
             }
         };
+        ctx.runner.step_finished(step.id(), &state);
         for warning in &state.warnings {
             ctx.runner.say(warning);
         }
@@ -178,23 +197,61 @@ pub fn command() -> clap::Command {
                 .action(clap::ArgAction::SetTrue)
                 .help("Only report each step's state; change nothing"),
         )
+        .arg(
+            clap::Arg::new("headless")
+                .long("headless")
+                .action(clap::ArgAction::SetTrue)
+                .help("Run in this terminal and print one JSON object, without the web page"),
+        )
 }
 
-pub fn run(matches: &clap::ArgMatches, opts: &Options) -> Result<bool> {
-    let (ok, report) = setup(opts, matches.get_flag("check"))?;
+pub const NO_UI: &str =
+    "ai2 setup: this build has no web page for setup, so it runs here in the terminal, as with --headless";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Done(bool),
+    Ui { check: bool },
+}
+
+pub fn outcome(matches: &clap::ArgMatches, opts: &Options) -> Result<Outcome> {
+    let check = matches.get_flag("check");
+    if !matches.get_flag("headless") {
+        return Ok(Outcome::Ui { check });
+    }
+    headless(opts, check).map(Outcome::Done)
+}
+
+pub fn headless(opts: &Options, check_only: bool) -> Result<bool> {
+    let (ok, report) = setup(opts, check_only)?;
     println!("{}", serde_json::to_string(&report)?);
     Ok(ok)
 }
 
+pub fn run(matches: &clap::ArgMatches, opts: &Options) -> Result<bool> {
+    match outcome(matches, opts)? {
+        Outcome::Done(ok) => Ok(ok),
+        Outcome::Ui { check } => {
+            eprintln!("{NO_UI}");
+            headless(opts, check)
+        }
+    }
+}
+
 pub fn setup(opts: &Options, check_only: bool) -> Result<(bool, Value)> {
-    let runner = System;
-    let host = Host::detect(&runner);
+    setup_with(opts, check_only, &System)
+}
+
+pub fn setup_with(opts: &Options, check_only: bool, runner: &dyn Runner) -> Result<(bool, Value)> {
+    let host = Host::detect(runner);
     let platform = keys::platform()?;
+    let admin = admin::Socket::new(&opts.admin);
     let ctx = Context {
         host: &host,
         options: opts,
-        runner: &runner,
+        runner,
         master: platform.master.as_ref(),
+        admin: &admin,
         presence: &touch_id,
         check_only,
     };

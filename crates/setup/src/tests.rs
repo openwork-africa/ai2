@@ -1,3 +1,5 @@
+use crate::admin::fake::FakeAdmin;
+use crate::admin::HOST_SANDBOX;
 use crate::files::{self, SERVICE_BIN, UNIT_PATH};
 use crate::host::Host;
 use crate::runner::fake::Fake;
@@ -20,6 +22,7 @@ fn mac_options() -> Options {
         state: "/Users/ada/.ai2/vault".into(),
         label: files::LABEL.into(),
         keychain: None,
+        admin: "/Users/ada/.ai2/vault/admin.sock".into(),
     }
 }
 
@@ -30,6 +33,7 @@ fn linux_options() -> Options {
         state: "/var/lib/ai2-vault".into(),
         label: files::LABEL.into(),
         keychain: None,
+        admin: "/run/ai2-vault/admin.sock".into(),
     }
 }
 
@@ -41,12 +45,33 @@ fn setup(
     present: bool,
     check_only: bool,
 ) -> (bool, Value) {
+    setup_with_admin(
+        host,
+        options,
+        fake,
+        master,
+        &FakeAdmin::with(&[HOST_SANDBOX]),
+        present,
+        check_only,
+    )
+}
+
+fn setup_with_admin(
+    host: &Host,
+    options: &Options,
+    fake: &Fake,
+    master: &dyn MasterKey,
+    admin: &FakeAdmin,
+    present: bool,
+    check_only: bool,
+) -> (bool, Value) {
     let presence = move || -> Result<bool> { Ok(present) };
     let ctx = Context {
         host,
         options,
         runner: fake,
         master,
+        admin,
         presence: &presence,
         check_only,
     };
@@ -459,7 +484,22 @@ fn the_setup_command_takes_check() {
         .try_get_matches_from(["setup", "--check"])
         .unwrap();
     assert!(matches.get_flag("check"));
+    assert!(!matches.get_flag("headless"));
     assert_eq!(crate::command().get_name(), "setup");
+    let matches = crate::command()
+        .try_get_matches_from(["setup", "--headless", "--check"])
+        .unwrap();
+    assert!(matches.get_flag("headless") && matches.get_flag("check"));
+}
+
+#[test]
+fn without_headless_setup_asks_the_caller_for_the_page_and_runs_nothing() {
+    use crate::{outcome, Outcome};
+    let options = Options::new("/nowhere/ai2", "/nowhere/.ai2");
+    for (args, check) in [(&["setup"][..], false), (&["setup", "--check"][..], true)] {
+        let matches = crate::command().try_get_matches_from(args).unwrap();
+        assert_eq!(outcome(&matches, &options).unwrap(), Outcome::Ui { check });
+    }
 }
 
 #[test]
@@ -485,11 +525,308 @@ fn release_urls_and_signatures_are_read_strictly() {
 }
 
 #[test]
+fn every_step_is_announced_before_it_runs_and_after_it_settles() {
+    let fake = Fake::default();
+    linux_fresh(&fake);
+    let master = MemoryKey::default();
+    let (ok, _) = setup(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        &master,
+        false,
+        false,
+    );
+    assert!(ok);
+    assert_eq!(
+        *fake.steps.borrow(),
+        [
+            "started containers",
+            "finished containers \"ready\"",
+            "started master-key",
+            "finished master-key \"ready\"",
+            "started presence",
+            "finished presence \"ready\"",
+            "started daemon",
+            "finished daemon \"ready\"",
+        ]
+    );
+    assert_eq!(
+        *fake.asked.borrow(),
+        ["Vault passphrase: ", "The same again: "]
+    );
+}
+
+#[test]
+fn steps_after_a_failure_finish_skipped_without_starting() {
+    let fake = Fake::default();
+    let master = MemoryKey::default();
+    setup(
+        &Host::linux(Some(249)),
+        &linux_options(),
+        &fake,
+        &master,
+        false,
+        false,
+    );
+    assert_eq!(
+        *fake.steps.borrow(),
+        [
+            "started containers",
+            "finished containers \"unsupported\"",
+            "started master-key",
+            "finished master-key \"failed\"",
+            "finished presence \"skipped\"",
+            "finished daemon \"skipped\"",
+        ]
+    );
+}
+
+#[test]
+fn the_default_passphrase_prompt_asks_twice_and_refuses_a_mismatch() {
+    use crate::runner::Runner;
+    let fake = Fake::default();
+    fake.type_in("one").type_in("one");
+    assert_eq!(fake.ask_passphrase("A: ", "B: ").unwrap(), "one");
+    fake.type_in("one").type_in("two");
+    let error = fake.ask_passphrase("A: ", "B: ").unwrap_err();
+    assert_eq!(error.to_string(), "the two passphrases differ");
+    assert_eq!(*fake.asked.borrow(), ["A: ", "B: ", "A: ", "B: "]);
+}
+
+#[test]
+fn each_step_has_a_title_a_why_and_a_fact_for_this_kind_of_machine() {
+    use crate::{inputs_info, steps_info};
+    let order: Vec<_> = all().iter().map(|step| step.id()).collect();
+    for host in [
+        Host::mac(26, true),
+        Host::mac(15, true),
+        Host::linux(Some(255)),
+        Host::linux(None),
+    ] {
+        let infos = steps_info(&host.os);
+        assert_eq!(infos.iter().map(|info| info.id).collect::<Vec<_>>(), order);
+        for info in infos {
+            assert!(!info.title.is_empty() && !info.why.is_empty() && !info.fact.is_empty());
+        }
+    }
+    let mac = steps_info(&Host::mac(26, true).os);
+    assert_eq!(mac[0].title, "Containers");
+    assert!(mac[2].why.contains("Touch ID"));
+    assert!(mac[3].fact.contains("launchd"));
+    let linux = steps_info(&Host::linux(Some(255)).os);
+    assert_eq!(linux[0].title, "Sandboxes");
+    assert!(linux[1].why.contains("systemd-creds"));
+    assert!(linux[2].why.contains("passphrase"));
+    let old = steps_info(&Host::mac(15, true).os);
+    assert!(old[0].why.contains("cannot keep agents in a container"));
+    assert_eq!(
+        serde_json::to_value(&mac[1]).unwrap()["title"],
+        "Master key"
+    );
+    let inputs = inputs_info();
+    assert_eq!(inputs[0].kind, "passphrase");
+    assert_eq!(inputs[0].fields.len(), 2);
+    assert!(inputs
+        .iter()
+        .all(|input| input.fields.iter().all(|field| field.secret)));
+    assert_eq!(inputs[1].kind, "sudo");
+}
+
+#[test]
+fn the_host_is_described_for_the_page() {
+    assert_eq!(
+        Host::mac(26, true).to_json(),
+        serde_json::json!({ "os": "macos", "version": 26, "arm64": true, "systemd": null, "user": "ada", "supports_containers": true })
+    );
+    assert_eq!(
+        Host::linux(Some(249)).to_json(),
+        serde_json::json!({ "os": "linux", "version": null, "arm64": null, "systemd": 249, "user": "ada", "supports_containers": false })
+    );
+}
+
+fn fresh_mac(admin: &FakeAdmin) -> (Fake, bool, Value) {
+    let fake = Fake::default();
+    container_missing_then_brewed(&fake);
+    fake.answer(WHICH_BREW, Ran::ok("/opt/homebrew/bin/brew\n"));
+    let master = MemoryKey::default();
+    let (ok, report) = setup_with_admin(
+        &Host::mac(26, true),
+        &mac_options(),
+        &fake,
+        &master,
+        admin,
+        true,
+        false,
+    );
+    (fake, ok, report)
+}
+
+#[test]
+fn the_daemon_step_ends_by_adding_the_host_sandbox_alone_with_touch_id() {
+    let admin = FakeAdmin::default();
+    let (fake, ok, report) = fresh_mac(&admin);
+    assert!(ok, "{report}");
+    assert_eq!(*admin.added.borrow(), [(HOST_SANDBOX.to_string(), None)]);
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "created");
+    assert!(report["steps"]["daemon"].get("warnings").is_none());
+    let said = fake.said.borrow();
+    let asked = said
+        .iter()
+        .find(|line| line.contains("sandbox host"))
+        .unwrap();
+    assert!(asked.contains("Touch ID") && asked.contains("this one change"));
+    assert!(fake.asked.borrow().is_empty());
+    assert_eq!(
+        fake.steps.borrow().last().unwrap(),
+        "finished daemon \"ready\""
+    );
+}
+
+#[test]
+fn a_host_sandbox_already_there_is_left_alone() {
+    let admin = FakeAdmin::with(&["box", HOST_SANDBOX]);
+    let (_, ok, report) = fresh_mac(&admin);
+    assert!(ok);
+    assert!(admin.added.borrow().is_empty());
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "present");
+}
+
+#[test]
+fn an_unreachable_admin_api_skips_the_host_sandbox_with_a_warning() {
+    let admin = FakeAdmin::unreachable();
+    let (fake, ok, report) = fresh_mac(&admin);
+    assert!(ok, "{report}");
+    assert_eq!(status(&report, "daemon"), "ready");
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "skipped");
+    let warning = report["steps"]["daemon"]["warnings"][0].as_str().unwrap();
+    assert!(
+        warning.contains("not reachable") && warning.contains("ai2 vault sandbox add --name host")
+    );
+    assert!(admin.added.borrow().is_empty());
+    assert!(!fake
+        .said
+        .borrow()
+        .iter()
+        .any(|line| line.contains("Touch ID")));
+}
+
+#[test]
+fn a_refused_host_sandbox_is_a_warning_not_a_failure() {
+    let admin = FakeAdmin::default().answering(
+        401,
+        serde_json::json!({ "error": "presence_required", "message": "Add the vault sandbox host: needs you present" }),
+    );
+    let (_, ok, report) = fresh_mac(&admin);
+    assert!(ok);
+    assert_eq!(report["steps"]["daemon"]["host_sandbox"], "skipped");
+    assert!(report["steps"]["daemon"]["warnings"][0]
+        .as_str()
+        .unwrap()
+        .contains("401: Add the vault sandbox host: needs you present"));
+}
+
+#[test]
+fn on_linux_the_host_sandbox_asks_for_the_passphrase_once_more() {
+    let fake = Fake::default();
+    linux_fresh(&fake);
+    fake.type_in("a long passphrase");
+    let admin = FakeAdmin::default();
+    let master = MemoryKey::default();
+    let (ok, report) = setup_with_admin(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        &master,
+        &admin,
+        false,
+        false,
+    );
+    assert!(ok, "{report}");
+    assert_eq!(
+        *admin.added.borrow(),
+        [(
+            HOST_SANDBOX.to_string(),
+            Some("a long passphrase".to_string())
+        )]
+    );
+    assert_eq!(
+        fake.asked.borrow().last().unwrap(),
+        crate::steps::HOST_PROMPT
+    );
+    assert!(crate::steps::HOST_PROMPT.contains("nothing else"));
+}
+
+#[test]
+fn a_check_never_reaches_for_the_host_sandbox() {
+    let fake = Fake::default();
+    let admin = FakeAdmin::unreachable();
+    let master = MemoryKey::default();
+    master.create().unwrap();
+    let (_, report) = setup_with_admin(
+        &Host::mac(26, true),
+        &mac_options(),
+        &fake,
+        &master,
+        &admin,
+        true,
+        true,
+    );
+    assert!(report["steps"]["daemon"].get("host_sandbox").is_none());
+    assert!(report["steps"]["daemon"].get("warnings").is_none());
+    assert!(admin.added.borrow().is_empty());
+}
+
+#[test]
+fn the_admin_socket_client_lists_and_adds_sandboxes() {
+    use crate::admin::{Admin, Socket};
+    use std::io::{Read, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("admin.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut seen = Vec::new();
+        for reply in [
+            r#"{"sandboxes":[{"name":"box"},{"name":"host"}]}"#,
+            r#"{"sandbox":{"name":"host"}}"#,
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap();
+            seen.push(String::from_utf8_lossy(&buf[..n]).into_owned());
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{reply}",
+                reply.len()
+            )
+            .unwrap();
+        }
+        seen
+    });
+    let socket = Socket::new(&path);
+    assert_eq!(socket.sandboxes().unwrap(), ["box", "host"]);
+    let (status, value) = socket.add_sandbox("host", Some("pass")).unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(value["sandbox"]["name"], "host");
+    let seen = server.join().unwrap();
+    assert!(seen[0].starts_with("GET /sandboxes HTTP/1.1\r\n"));
+    assert!(seen[1].starts_with("POST /sandboxes HTTP/1.1\r\n"));
+    assert!(seen[1].contains("X-Vault-Passphrase: pass\r\n"));
+    assert!(seen[1].ends_with(r#"{"name":"host"}"#));
+    assert!(socket.add_sandbox("host", Some("a\r\nX: y")).is_err());
+    let gone = Socket {
+        path: dir.path().join("none.sock"),
+        wait: std::time::Duration::ZERO,
+    };
+    assert!(gone.sandboxes().is_err());
+}
+
+#[test]
 #[ignore]
 fn this_machine_checks_without_changing_anything() {
     let options = Options::new("/usr/local/bin/ai2", "/tmp/ai2-setup-check");
     let matches = crate::command()
-        .try_get_matches_from(["setup", "--check"])
+        .try_get_matches_from(["setup", "--headless", "--check"])
         .unwrap();
     crate::run(&matches, &options).unwrap();
 }
