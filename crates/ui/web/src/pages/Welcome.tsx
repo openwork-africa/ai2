@@ -81,10 +81,6 @@ export default function Welcome() {
                 className="-mt-[calc(var(--art)*0.08)] -mb-[calc(var(--art)*0.14)] aspect-square w-(--art) mix-blend-multiply select-none [--art:min(50svh,26rem,88vw)]"
               />
               <div className="flex max-w-md flex-col items-center gap-3 text-center">
-                <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  <span aria-hidden className="size-1.5 rounded-[2px] bg-brand" />
-                  {chapter.label}
-                </span>
                 <h1 className="font-heading text-2xl font-semibold tracking-tight text-balance sm:text-[1.75rem]">
                   {chapter.title}
                 </h1>
