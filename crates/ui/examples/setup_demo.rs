@@ -80,7 +80,10 @@ fn brew(runner: &dyn Runner) -> Result<State> {
         0.35,
     ))?;
     runner.run(&shell(
-        &["Verifying apiserver is running...", "Starting kernel install"],
+        &[
+            "Verifying apiserver is running...",
+            "Starting kernel install",
+        ],
         0.3,
     ))?;
     Ok(State::new(Status::Ready).with("runtime", "apple-container"))
@@ -124,9 +127,9 @@ fn systemd(runner: &dyn Runner) -> Result<State> {
         &["Created symlink /etc/systemd/system/multi-user.target.wants/ai2-vault.service → /etc/systemd/system/ai2-vault.service."],
         0.3,
     ))?;
-    Ok(State::new(Status::Ready).with("service", "systemd").warn(
-        "Log out and back in so ada can reach the vault as a member of ai2-vault-admin.",
-    ))
+    Ok(State::new(Status::Ready)
+        .with("service", "systemd")
+        .warn("Log out and back in so ada can reach the vault as a member of ai2-vault-admin."))
 }
 
 fn sandboxes(runner: &dyn Runner) -> Result<State> {
@@ -224,11 +227,9 @@ fn scenario(name: &str, runner: &dyn Runner) -> Result<(bool, Value)> {
 
 fn host(name: &str) -> Host {
     match name {
-        "input" | "sudo" | "failed" | "warned" => Host::linux(Some(if name == "failed" {
-            249
-        } else {
-            255
-        })),
+        "input" | "sudo" | "failed" | "warned" => {
+            Host::linux(Some(if name == "failed" { 249 } else { 255 }))
+        }
         "unsupported" => Host::mac(15, false),
         _ => Host::mac(26, true),
     }

@@ -1,10 +1,12 @@
-use crate::cli::{default_out, exit_code, providers_file, Build, Subcommand};
+use crate::cli::{providers_file, Subcommand};
+use crate::doctor::Row;
 use crate::model::Model;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::ArgMatches;
-use std::path::{Path, PathBuf};
+use serde_json::Value;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 use vault::{KeyInfo, NoVetter, Outcome, Proposal, Resolver, Serve, Verdict, Vetter, Vetting};
 
 pub struct ModelVetter(pub Model);
@@ -30,7 +32,7 @@ impl VaultSubcommand {
         Self { name }
     }
 
-    fn options(&self) -> vault::Options {
+    pub(crate) fn options(&self) -> vault::Options {
         let name = self.name;
         vault::Options::new(
             &crate::cli::state_dir(name),
@@ -41,60 +43,77 @@ impl VaultSubcommand {
 
 impl Subcommand for VaultSubcommand {
     fn command(&self) -> clap::Command {
-        vault::command_with(vec![vault_ui::command()])
+        vault::command_with(ui::commands())
     }
     fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
         let options = self.options();
         match vault::outcome(matches, &options)? {
             Outcome::Code(code) => Ok(ExitCode::from(code as u8)),
-            Outcome::Extra(name, sub) if name == "ui" => {
-                let report = sub
-                    .get_one::<PathBuf>("report")
-                    .map(|path| report_file(path))
-                    .transpose()?;
-                vault_ui::run(report, &options.admin).map(exit_code)
-            }
-            Outcome::Extra(name, _) => Err(anyhow!("unknown vault subcommand {name}")),
+            Outcome::Extra(name, sub) => ui::run(&name, &sub, &options),
         }
     }
+    fn usage_exit(&self) -> Option<u8> {
+        Some(vault::exit::USAGE as u8)
+    }
 }
 
-fn report_file(path: &Path) -> Result<PathBuf> {
-    if path.is_file() {
-        return Ok(path.to_path_buf());
-    }
-    let folder = path
-        .canonicalize()
-        .with_context(|| format!("{} is not a folder or a report", path.display()))?;
-    let reviewed = default_out(Build::ai2(), &folder).join("report.html");
-    if reviewed.is_file() {
-        return Ok(reviewed);
-    }
-    let inside = folder.join("report.html");
-    if inside.is_file() {
-        return Ok(inside);
-    }
-    bail!(
-        "There is no report.html for {}: run ai2 on it first.",
-        folder.display()
-    )
-}
+#[cfg(feature = "ui")]
+mod ui {
+    use crate::cli::{default_out, exit_code, Build};
+    use anyhow::{anyhow, bail, Context, Result};
+    use clap::ArgMatches;
+    use std::path::{Path, PathBuf};
+    use std::process::ExitCode;
 
-pub struct SetupSubcommand {
-    pub name: &'static str,
-}
-
-impl Subcommand for SetupSubcommand {
-    fn command(&self) -> clap::Command {
-        setup::command()
+    pub fn commands() -> Vec<clap::Command> {
+        vec![vault_ui::command()]
     }
-    fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
-        let bin = std::env::current_exe()?;
-        setup::run(
-            matches,
-            &setup::Options::new(bin, crate::cli::state_dir(self.name)),
+
+    pub fn run(name: &str, sub: &ArgMatches, options: &vault::Options) -> Result<ExitCode> {
+        if name != "ui" {
+            return Err(anyhow!("unknown vault subcommand {name}"));
+        }
+        let report = sub
+            .get_one::<PathBuf>("report")
+            .map(|path| report_file(path))
+            .transpose()?;
+        vault_ui::run(report, &options.admin).map(exit_code)
+    }
+
+    fn report_file(path: &Path) -> Result<PathBuf> {
+        if path.is_file() {
+            return Ok(path.to_path_buf());
+        }
+        let folder = path
+            .canonicalize()
+            .with_context(|| format!("{} is not a folder or a report", path.display()))?;
+        let reviewed = default_out(Build::ai2(), &folder).join("report.html");
+        if reviewed.is_file() {
+            return Ok(reviewed);
+        }
+        let inside = folder.join("report.html");
+        if inside.is_file() {
+            return Ok(inside);
+        }
+        bail!(
+            "There is no report.html for {}: run ai2 on it first.",
+            folder.display()
         )
-        .map(exit_code)
+    }
+}
+
+#[cfg(not(feature = "ui"))]
+mod ui {
+    use anyhow::{anyhow, Result};
+    use clap::ArgMatches;
+    use std::process::ExitCode;
+
+    pub fn commands() -> Vec<clap::Command> {
+        Vec::new()
+    }
+
+    pub fn run(name: &str, _sub: &ArgMatches, _options: &vault::Options) -> Result<ExitCode> {
+        Err(anyhow!("unknown vault subcommand {name}"))
     }
 }
 
@@ -133,8 +152,154 @@ fn owners(listed: Option<&str>) -> Vec<u32> {
         .collect()
 }
 
+fn admin_get(name: &'static str, path: &str) -> Result<Value> {
+    let options = VaultSubcommand::new(name).options();
+    let (status, value) = vault::cli::Admin::new(&options).call("GET", path, None, false)?;
+    if status != 200 {
+        bail!("{path} answered {status}: {value}");
+    }
+    Ok(value)
+}
+
+pub fn daemon_version(name: &'static str) -> Result<String> {
+    admin_get(name, "/status")?["version"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("/status gave no version"))
+}
+
+pub fn rows(name: &'static str) -> Vec<Row> {
+    vec![
+        sandboxes_row(name, admin_get(name, "/sandboxes")),
+        vetting_model(name),
+    ]
+}
+
+pub fn sandboxes_row(name: &str, listed: Result<Value>) -> Row {
+    const CHECK: &str = "sandboxes";
+    let listed = match listed {
+        Ok(listed) => listed,
+        Err(error) => {
+            return Row::fail(CHECK, format!("{error:#}")).fix(format!("run {name} setup"))
+        }
+    };
+    let names: Vec<&str> = listed["sandboxes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|sandbox| sandbox["name"].as_str())
+        .collect();
+    if names.is_empty() {
+        return Row::ok(CHECK, "none");
+    }
+    let detail = names.join(", ");
+    if names.contains(&"host") {
+        return Row::warn(
+            CHECK,
+            format!("{detail}; host is not safe: its tokens work for any process on this machine, outside a container"),
+        )
+        .fix(format!(
+            "give agents a container sandbox, and remove host with {name} vault sandbox remove --name host"
+        ));
+    }
+    Row::ok(CHECK, detail)
+}
+
+const VETTING: &str = "vetting-model";
+
+pub fn vetting_model(name: &str) -> Row {
+    let Some(file) = providers_file(name, None) else {
+        return Row::warn(
+            VETTING,
+            "no providers file, so the vault refuses calls that need vetting",
+        )
+        .fix(format!(
+            "write ~/.{name}/providers.json or set {}_PROVIDERS",
+            name.to_uppercase().replace('-', "_")
+        ));
+    };
+    match Model::load(&file, None) {
+        Ok(model) => vetting_row(&model.name(), model.base_url(), reach(model.base_url())),
+        Err(error) => {
+            Row::fail(VETTING, format!("{error:#}")).fix(format!("fix {}", file.display()))
+        }
+    }
+}
+
+fn reach(url: &str) -> Result<u16> {
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    Ok(agent
+        .get(url)
+        .call()
+        .with_context(|| format!("calling {url}"))?
+        .status()
+        .as_u16())
+}
+
+pub fn vetting_row(model: &str, url: &str, reached: Result<u16>) -> Row {
+    match reached {
+        Ok(status) => Row::ok(VETTING, format!("{model} at {url} answered {status}")),
+        Err(error) => Row::fail(VETTING, format!("{model}: {error:#}"))
+            .fix(format!("check the network and {url}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::doctor::State;
+    use serde_json::json;
+
+    #[test]
+    fn a_host_sandbox_is_a_warning_and_an_unreachable_daemon_a_failure() {
+        assert_eq!(
+            sandboxes_row("ai2", Ok(json!({ "sandboxes": [] }))).state,
+            State::Ok
+        );
+        let boxed = sandboxes_row("ai2", Ok(json!({ "sandboxes": [{ "name": "box" }] })));
+        assert_eq!((boxed.state, boxed.detail.as_str()), (State::Ok, "box"));
+        let host = sandboxes_row(
+            "ai2",
+            Ok(json!({ "sandboxes": [{ "name": "box" }, { "name": "host" }] })),
+        );
+        assert_eq!(host.state, State::Warn);
+        assert!(host.detail.starts_with("box, host; host is not safe"));
+        assert_eq!(
+            sandboxes_row("ai2", Err(anyhow!("not running"))).state,
+            State::Fail
+        );
+    }
+
+    #[test]
+    fn the_vetting_model_is_reached_without_a_key() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let answer = std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut asked = [0u8; 1024];
+            let read = conn.read(&mut asked).unwrap();
+            conn.write_all(
+                b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+            )
+            .unwrap();
+            String::from_utf8_lossy(&asked[..read]).to_lowercase()
+        });
+        let row = vetting_row("a/one", &url, reach(&url));
+        assert_eq!(row.state, State::Ok);
+        assert!(row.detail.ends_with("answered 404"));
+        let asked = answer.join().unwrap();
+        assert!(!asked.contains("authorization") && !asked.contains("x-api-key"));
+        assert_eq!(
+            vetting_row("a/one", &url, Err(anyhow!("refused"))).state,
+            State::Fail
+        );
+    }
+
     #[test]
     fn owners_come_from_a_comma_list_of_uids() {
         assert_eq!(super::owners(Some("501, 1000,x")), vec![501, 1000]);
