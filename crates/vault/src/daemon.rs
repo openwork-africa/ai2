@@ -1,11 +1,12 @@
 use crate::approvals::Approvals;
 use crate::crypto;
+use crate::guard::{self, Guard, Refusal};
 use crate::http::{self, Request};
 use crate::store::{Endpoint, Store};
 use crate::vet::Vetter;
 use crate::{admin, gateway};
 use anyhow::{anyhow, bail, Context, Result};
-use keys::Platform;
+use keys::{Caller, Platform};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -29,9 +30,13 @@ pub struct Config {
     pub admin_mode: u32,
     pub sockets: PathBuf,
     pub socket_mode: u32,
-    pub allow_http: bool,
+    pub admin_dir_mode: u32,
+    pub http_prefixes: bool,
+    pub plain_http: Vec<String>,
     pub approval_timeout: Duration,
     pub owners: Vec<u32>,
+    pub throttle: Duration,
+    pub throttle_limit: Duration,
 }
 
 impl Config {
@@ -50,9 +55,17 @@ impl Config {
             } else {
                 0o600
             },
-            allow_http: false,
+            admin_dir_mode: if cfg!(target_os = "linux") {
+                0o755
+            } else {
+                0o700
+            },
+            http_prefixes: false,
+            plain_http: Vec::new(),
             approval_timeout: Duration::from_secs(120),
             owners: vec![unsafe { libc::geteuid() }],
+            throttle: guard::BASE,
+            throttle_limit: guard::LIMIT,
         }
     }
 }
@@ -69,6 +82,13 @@ pub struct Vault {
     listeners: Mutex<HashMap<String, Listener>>,
     pub agent: ureq::Agent,
     refused_at: Mutex<Option<Instant>>,
+    guard: Guard,
+}
+
+pub enum Absent {
+    No,
+    Busy,
+    Throttled(Duration),
 }
 
 struct Listener {
@@ -101,12 +121,14 @@ pub fn start(
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .max_redirects(0)
-        .https_only(!config.allow_http)
+        .https_only(config.plain_http.is_empty())
         .timeout_connect(Some(Duration::from_secs(30)))
         .timeout_recv_response(Some(Duration::from_secs(300)))
         .build()
         .new_agent();
+    let guard = Guard::new(config.throttle, config.throttle_limit);
     let vault = Arc::new(Vault {
+        guard,
         config,
         platform,
         vetter: OnceLock::new(),
@@ -124,7 +146,7 @@ pub fn start(
             .secret(name)
     });
     let _ = vault.vetter.set(make(resolver));
-    let admin = bind_unix(&vault.config.admin, vault.config.admin_mode)?;
+    let admin = bind_admin(&vault.config)?;
     vault.listen(ADMIN, Bound::Unix(admin, vault.config.admin.clone()));
     let sandboxes = vault.store().sandboxes.clone();
     for sandbox in sandboxes {
@@ -197,9 +219,29 @@ impl Vault {
         crypto::open(&*self.master()?, name, &sealed)
     }
 
-    pub fn present(&self, request: &Request, action: &str) -> bool {
+    pub fn present(&self, request: &Request, caller: &Caller, action: &str) -> Result<(), Absent> {
+        let turn = self
+            .guard
+            .enter(Instant::now())
+            .map_err(|refusal| match refusal {
+                Refusal::Busy => Absent::Busy,
+                Refusal::Throttled(left) => Absent::Throttled(left),
+            })?;
         let passphrase = request.header("x-vault-passphrase");
-        matches!(self.platform.presence.confirm(action, passphrase), Ok(true))
+        let confirmed = matches!(
+            self.platform.presence.confirm(action, caller, passphrase),
+            Ok(true)
+        );
+        turn.finish(confirmed, Instant::now());
+        if confirmed {
+            Ok(())
+        } else {
+            Err(Absent::No)
+        }
+    }
+
+    pub fn presence_kind(&self) -> &'static str {
+        self.platform.presence.kind()
     }
 
     fn refused(&self, sandbox: &str, uid: Option<u32>) {
@@ -295,13 +337,15 @@ fn accept(vault: Arc<Vault>, sandbox: String, bound: Bound, stop: Arc<AtomicBool
                     std::thread::sleep(Duration::from_millis(50));
                     continue;
                 };
-                let uid = peer_uid(&conn);
-                let user_ok = uid.is_some_and(|uid| vault.config.owners.contains(&uid));
+                let caller = peer(&conn);
+                let user_ok = caller
+                    .uid
+                    .is_some_and(|uid| vault.config.owners.contains(&uid));
                 if !user_ok {
-                    vault.refused(&sandbox, uid);
+                    vault.refused(&sandbox, caller.uid);
                 }
                 let _ = conn.set_read_timeout(Some(READ_TIMEOUT));
-                spawn(&vault, &sandbox, conn, true, user_ok);
+                spawn(&vault, &sandbox, conn, (true, user_ok), caller);
             }
             Bound::Tcp(listener, peers) => {
                 let accepted = listener.accept();
@@ -314,7 +358,7 @@ fn accept(vault: Arc<Vault>, sandbox: String, bound: Bound, stop: Arc<AtomicBool
                 };
                 let _ = conn.set_read_timeout(Some(READ_TIMEOUT));
                 let allowed = peers.contains(&canonical(peer.ip()));
-                spawn(&vault, &sandbox, conn, allowed, true);
+                spawn(&vault, &sandbox, conn, (allowed, true), Caller::default());
             }
         }
     }
@@ -324,16 +368,16 @@ fn spawn(
     vault: &Arc<Vault>,
     sandbox: &str,
     conn: impl Read + Write + Send + 'static,
-    allowed: bool,
-    user_ok: bool,
+    (allowed, user_ok): (bool, bool),
+    caller: Caller,
 ) {
     let vault = Arc::clone(vault);
     let sandbox = sandbox.to_string();
-    std::thread::spawn(move || handle(&vault, &sandbox, conn, allowed, user_ok));
+    std::thread::spawn(move || handle(&vault, &sandbox, conn, (allowed, user_ok), &caller));
 }
 
 #[cfg(target_os = "linux")]
-fn peer_uid(stream: &UnixStream) -> Option<u32> {
+fn peer(stream: &UnixStream) -> Caller {
     let mut cred = libc::ucred {
         pid: 0,
         uid: 0,
@@ -349,14 +393,38 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
             &mut len,
         )
     };
-    (read == 0).then_some(cred.uid)
+    if read != 0 {
+        return Caller::default();
+    }
+    Caller {
+        pid: u32::try_from(cred.pid).ok().filter(|pid| *pid > 0),
+        uid: Some(cred.uid),
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn peer_uid(stream: &UnixStream) -> Option<u32> {
+fn peer(stream: &UnixStream) -> Caller {
+    let fd = stream.as_raw_fd();
     let (mut uid, mut gid) = (0, 0);
-    let read = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
-    (read == 0).then_some(uid)
+    let read = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
+    let mut pid: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    let got_pid = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&mut pid as *mut libc::pid_t).cast(),
+            &mut len,
+        )
+    };
+    Caller {
+        pid: (got_pid == 0)
+            .then(|| u32::try_from(pid).ok())
+            .flatten()
+            .filter(|pid| *pid > 0),
+        uid: (read == 0).then_some(uid),
+    }
 }
 
 fn canonical(ip: IpAddr) -> IpAddr {
@@ -370,8 +438,8 @@ fn handle(
     vault: &Arc<Vault>,
     sandbox: &str,
     mut conn: impl Read + Write,
-    allowed: bool,
-    user_ok: bool,
+    (allowed, user_ok): (bool, bool),
+    caller: &Caller,
 ) {
     let request = match http::read_request(&mut conn) {
         Ok(request) => request,
@@ -389,7 +457,7 @@ fn handle(
         return;
     }
     if sandbox == ADMIN {
-        let (status, body) = admin::route(vault, &request);
+        let (status, body) = admin::route(vault, &request, caller);
         let _ = http::write_json(&mut conn, status, &body);
     } else {
         gateway::handle(vault, sandbox, allowed, request, &mut conn);
@@ -417,6 +485,23 @@ fn make_dirs(dir: &Path, mode: u32) -> Result<()> {
         .with_context(|| format!("making {}", dir.display()))?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode))
         .with_context(|| format!("securing {}", dir.display()))
+}
+
+fn bind_admin(config: &Config) -> Result<UnixListener> {
+    if let Some(parent) = config.admin.parent() {
+        make_dirs(parent, config.admin_dir_mode)?;
+        let ours = std::fs::metadata(parent).is_ok_and(|meta| {
+            std::os::unix::fs::MetadataExt::uid(&meta) == unsafe { libc::geteuid() }
+        });
+        if ours {
+            std::fs::set_permissions(
+                parent,
+                std::fs::Permissions::from_mode(config.admin_dir_mode),
+            )
+            .with_context(|| format!("opening {} to the admin group", parent.display()))?;
+        }
+    }
+    bind_unix(&config.admin, config.admin_mode)
 }
 
 pub fn bind_unix(path: &Path, mode: u32) -> Result<UnixListener> {
@@ -465,6 +550,30 @@ mod tests {
         assert_eq!(mode(&path), 0o600);
         assert_eq!(mode(&dir.path().join("a")), 0o700);
         assert_eq!(mode(&dir.path().join("a").join("b")), 0o700);
+    }
+
+    #[test]
+    fn a_hand_started_daemon_opens_its_runtime_folder_like_the_unit_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = dir.path().join("run").join("ai2-vault");
+        let mut config = Config::new(dir.path().join("state"), run.join("admin.sock"));
+        config.admin_dir_mode = 0o755;
+        config.admin_mode = 0o660;
+        let _listener = bind_admin(&config).unwrap();
+        assert_eq!(mode(&run), 0o755);
+        assert_eq!(mode(&run.join("admin.sock")), 0o660);
+        std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700)).unwrap();
+        drop(_listener);
+        let _again = bind_admin(&config).unwrap();
+        assert_eq!(mode(&run), 0o755);
+        let made = Config::new("/s".into(), "/s/admin.sock".into());
+        let expected = if cfg!(target_os = "linux") {
+            0o755
+        } else {
+            0o700
+        };
+        assert_eq!(made.admin_dir_mode, expected);
+        assert!(!made.http_prefixes && made.plain_http.is_empty());
     }
 
     #[test]
