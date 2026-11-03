@@ -68,8 +68,8 @@ impl Drop for Admin {
     }
 }
 
-struct Reply {
-    status: u16,
+pub(crate) struct Reply {
+    pub(crate) status: u16,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
 }
@@ -82,7 +82,7 @@ impl Reply {
             .map(|(_, value)| value.as_str())
     }
 
-    fn json(&self) -> serde_json::Value {
+    pub(crate) fn json(&self) -> serde_json::Value {
         serde_json::from_slice(&self.body).unwrap()
     }
 
@@ -93,12 +93,12 @@ impl Reply {
             .to_string()
     }
 
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
 }
 
-struct Ui {
+pub(crate) struct Ui {
     host: String,
     nonce: String,
     runtime: Option<tokio::runtime::Runtime>,
@@ -150,7 +150,13 @@ impl Ui {
         self.send("GET", target, &[("Host", &self.host)], b"")
     }
 
-    fn api(&self, method: &str, target: &str, extra: &[(&str, &str)], body: &str) -> Reply {
+    pub(crate) fn api(
+        &self,
+        method: &str,
+        target: &str,
+        extra: &[(&str, &str)],
+        body: &str,
+    ) -> Reply {
         let origin = self.origin();
         let mut headers = vec![
             ("Host", self.host.as_str()),
@@ -214,7 +220,7 @@ fn unchunk(mut raw: &[u8]) -> Vec<u8> {
     out
 }
 
-fn ui_without_daemon(dir: &Path) -> Ui {
+pub(crate) fn ui_without_daemon(dir: &Path) -> Ui {
     Ui::start(dir, &dir.join("admin.sock"))
 }
 

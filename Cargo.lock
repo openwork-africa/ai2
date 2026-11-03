@@ -2627,6 +2627,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "futures-util",
  "include_dir",
  "mime_guess",
  "serde",
