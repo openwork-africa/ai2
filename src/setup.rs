@@ -17,12 +17,37 @@ impl Subcommand for SetupSubcommand {
     }
     fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
         let bin = std::env::current_exe()?;
-        setup::run(
-            matches,
-            &setup::Options::new(bin, crate::cli::state_dir(self.name)),
-        )
-        .map(exit_code)
+        let options = setup::Options::new(bin, crate::cli::state_dir(self.name));
+        match setup::outcome(matches, &options)? {
+            setup::Outcome::Done(ok) => Ok(exit_code(ok)),
+            setup::Outcome::Ui { check } => {
+                in_the_browser(self.name, options, check).map(exit_code)
+            }
+        }
     }
+}
+
+#[cfg(feature = "ui")]
+fn in_the_browser(name: &'static str, options: setup::Options, check: bool) -> Result<bool> {
+    let port = std::env::var("AI2_UI_PORT")
+        .ok()
+        .and_then(|port| port.parse().ok())
+        .unwrap_or(ui::DEFAULT_PORT);
+    ui::setup::run(
+        &crate::ui::options(name),
+        options,
+        ui::setup::Launch {
+            port,
+            open: true,
+            check,
+        },
+    )
+}
+
+#[cfg(not(feature = "ui"))]
+fn in_the_browser(_name: &'static str, options: setup::Options, check: bool) -> Result<bool> {
+    eprintln!("{}", setup::NO_UI);
+    setup::headless(&options, check)
 }
 
 pub fn rows(name: &'static str) -> Vec<Row> {
