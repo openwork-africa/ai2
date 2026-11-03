@@ -17,5 +17,5 @@ export const NAV: NavEntry[] = [
   { to: "/", label: "Apps", icon: LayoutGrid, feature: "apps", match: (path) => path === "/" || under("/apps")(path) },
   { to: "/reviews", label: "Security", icon: ShieldCheck, feature: "reviews", match: under("/reviews") },
   { to: "/vault", label: "Vault", icon: KeyRound, feature: "vault", match: under("/vault"), badge: VaultNavBadge },
-  { to: "/harnesses", label: "Harnesses", icon: Bot, feature: "harness", match: under("/harnesses") },
+  { to: "/harnesses", label: "Tools", icon: Bot, feature: "harness", match: under("/harnesses") },
 ];

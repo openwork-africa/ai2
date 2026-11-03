@@ -298,7 +298,7 @@ export default function Harnesses() {
   return (
     <Page className="max-w-6xl">
       <PageHeader
-        title="Harnesses"
+        title="Tools"
         description="The coding agents ai squared sets up and watches, all on this machine."
         actions={harnesses && <Summary harnesses={harnesses} />}
       />
