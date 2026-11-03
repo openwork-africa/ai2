@@ -1,4 +1,5 @@
 use crate::admin::{bad, checked_name, fail, internal, listed, missing, Failure};
+use crate::api::{self, Changed, Deleted, KeyOut, NewToken, Removed, Revoked, SandboxOut};
 use crate::crypto::{self, Sealed};
 use crate::daemon::Vault;
 use crate::inject::{self, Inject};
@@ -6,18 +7,19 @@ use crate::policy;
 use crate::store::{Endpoint, KeyRecord, Mode, Sandbox, Store, TokenRecord};
 use crate::time;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use utoipa::ToSchema;
 use zeroize::Zeroizing;
 
 pub const MAX_ITEMS: usize = 100;
 const AGENT_TTL: &str = "8h";
 const APP_TTL: &str = "30d";
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct PutKey {
     pub secret: String,
     #[serde(default)]
@@ -27,42 +29,42 @@ pub struct PutKey {
     pub inject: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct NamedKey {
     pub name: String,
     #[serde(flatten)]
     pub key: PutKey,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct Rotate {
     pub secret: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct NamedRotate {
     pub name: String,
     pub secret: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct Name {
     pub name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct TokenId {
     pub id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 #[serde(untagged)]
 pub enum Methods {
     One(String),
     Many(Vec<String>),
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateToken {
     pub keys: Vec<String>,
     pub sandbox: String,
@@ -75,16 +77,18 @@ pub struct CreateToken {
     pub uses: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct AddSandbox {
     pub name: String,
+    #[schema(value_type = Option<String>)]
     pub socket: Option<PathBuf>,
     pub tcp: Option<String>,
     #[serde(default)]
+    #[schema(value_type = Vec<String>)]
     pub peers: Vec<IpAddr>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Action {
     PutKey(NamedKey),
@@ -96,7 +100,7 @@ pub enum Action {
     RemoveSandbox(Name),
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct Batch {
     pub actions: Vec<Action>,
 }
@@ -551,16 +555,20 @@ impl Dirty {
     }
 }
 
-fn token_out(record: &TokenRecord, token: &str, revoke: &str) -> Value {
-    let mut out = record.public();
-    out["token"] = json!(token);
-    out["revoke"] = json!(revoke);
+fn token_out(record: &TokenRecord, token: &str, revoke: &str) -> NewToken {
+    let mut warnings = Vec::new();
     if record.sandbox == "host" && cfg!(target_os = "macos") {
-        out["warnings"] = json!([
+        warnings.push(
             "Not safe: a host token works for any process on this Mac, outside a container."
-        ]);
+                .to_string(),
+        );
     }
-    out
+    NewToken {
+        view: record.view(),
+        token: token.to_string(),
+        revoke: revoke.to_string(),
+        warnings,
+    }
 }
 
 fn change(
@@ -569,19 +577,19 @@ fn change(
     item: Ready,
     dirty: &mut Dirty,
     opened: &mut Vec<String>,
-) -> Result<Value, Failure> {
+) -> Result<Changed, Failure> {
     Ok(match item {
         Ready::Key(mut record) => {
             if let Some(old) = store.key(&record.name) {
                 record.created = old.created.clone();
                 record.rotated = Some(time::stamp());
             }
-            let public = record.public();
+            let key = record.view();
             store.forget_key(&record.name);
             store.keys.push(record);
             dirty.keys = true;
             dirty.vetted = true;
-            json!({ "key": public })
+            Changed::Key(KeyOut { key })
         }
         Ready::Rotated(name, sealed) => {
             let Some(key) = store.keys.iter_mut().find(|key| key.name == name) else {
@@ -591,24 +599,24 @@ fn change(
             key.secret = sealed.secret;
             key.rotated = Some(time::stamp());
             dirty.keys = true;
-            json!({ "key": key.public() })
+            Changed::Key(KeyOut { key: key.view() })
         }
         Ready::Deleted(name) => {
             store.forget_key(&name);
             dirty.keys = true;
             dirty.vetted = true;
-            json!({ "deleted": name })
+            Changed::Deleted(Deleted { deleted: name })
         }
         Ready::Token(record, token, revoke) => {
             let out = token_out(&record, &token, &revoke);
             store.tokens.push(*record);
             dirty.tokens = true;
-            out
+            Changed::Token(out)
         }
         Ready::Revoked(id) => {
             store.tokens.retain(|t| t.id != id);
             dirty.tokens = true;
-            json!({ "revoked": id })
+            Changed::Revoked(Revoked { revoked: id })
         }
         Ready::Sandbox(name, endpoint) => {
             let endpoint = vault.open_endpoint(&name, &endpoint).map_err(internal)?;
@@ -616,12 +624,12 @@ fn change(
             let sandbox = Sandbox { name, endpoint };
             store.sandboxes.push(sandbox.clone());
             dirty.sandboxes = true;
-            json!({ "sandbox": sandbox })
+            Changed::Sandbox(SandboxOut { sandbox })
         }
         Ready::Removed(name) => {
             store.sandboxes.retain(|s| s.name != name);
             dirty.sandboxes = true;
-            json!({ "removed": name })
+            Changed::Removed(Removed { removed: name })
         }
     })
 }
@@ -647,7 +655,7 @@ fn apply(vault: &Arc<Vault>, steps: Vec<Step>) -> Result<Vec<Value>, Failure> {
         let mut dirty = Dirty::default();
         let applied = ready
             .into_iter()
-            .map(|item| change(vault, &mut store, item, &mut dirty, &mut opened))
+            .map(|item| change(vault, &mut store, item, &mut dirty, &mut opened).map(api::value))
             .collect::<Result<Vec<_>, _>>()
             .and_then(|outs| dirty.save(&store).map(|_| outs).map_err(internal));
         if applied.is_err() {

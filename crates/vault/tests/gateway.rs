@@ -656,6 +656,12 @@ fn changes_need_a_human_present() {
     assert_eq!(value["platform"], std::env::consts::OS);
     assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(value["presence"], keys::MEMORY);
+    let (status, doc) = admin(&test, "GET", "/openapi.json", json!({}));
+    assert_eq!(status, 200);
+    assert!(doc["paths"]["/batch"]["post"].is_object());
+    let (status, doc) = admin(&test, "GET", "/openapi/gateway.json", json!({}));
+    assert_eq!(status, 200);
+    assert!(doc["paths"]["/{key}/{host}/{path}"]["get"].is_object());
     let callers = test.gate.callers.lock().unwrap().clone();
     assert_eq!(
         callers,

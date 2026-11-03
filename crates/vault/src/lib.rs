@@ -1,4 +1,5 @@
 mod admin;
+pub mod api;
 mod approvals;
 mod changes;
 pub mod cli;
@@ -9,6 +10,7 @@ mod gateway;
 mod guard;
 pub mod http;
 mod inject;
+mod openapi;
 mod policy;
 mod scrub;
 mod store;
