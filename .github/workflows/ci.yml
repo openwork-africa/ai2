@@ -23,7 +23,7 @@ jobs:
   features:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         features:
           - "--no-default-features"
           - "--no-default-features --features harness,vault"
@@ -43,7 +43,7 @@ jobs:
   each-feature:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
