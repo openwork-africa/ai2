@@ -21,7 +21,7 @@ pub use doctor::DoctorSubcommand;
 pub use harness::HarnessSubcommand;
 #[cfg(feature = "setup")]
 pub use setup::SetupSubcommand;
-pub use step::{Context, Found, Item, Rated, Run, Step};
+pub use step::{Context, Found, Item, Rated, Step};
 #[cfg(feature = "vault")]
 pub use vault::VaultSubcommand;
 

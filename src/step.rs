@@ -37,7 +37,6 @@ impl Context {
     }
 }
 
-pub type Run = Context;
 
 #[derive(Default)]
 pub struct Found {
