@@ -1,5 +1,6 @@
 mod admin;
 mod approvals;
+mod changes;
 pub mod cli;
 mod client;
 pub mod crypto;

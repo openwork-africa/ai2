@@ -848,6 +848,33 @@ fn the_cli_talks_to_the_daemon_and_hands_back_extra_subcommands() {
     assert!(
         matches!(vault::outcome(&ui, &opts).unwrap(), vault::Outcome::Extra(name, _) if name == "ui")
     );
+    let file = test.state.join("changes.json");
+    std::fs::write(
+        &file,
+        json!([
+            { "action": "add_sandbox", "name": "applied" },
+            { "action": "create_token", "keys": ["svc"], "sandbox": "applied", "mode": "app" },
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    let asked = test.gate.asked.lock().unwrap().len();
+    let apply = command
+        .clone()
+        .try_get_matches_from(["vault", "apply", file.to_str().unwrap()])
+        .unwrap();
+    assert!(matches!(
+        vault::outcome(&apply, &opts).unwrap(),
+        vault::Outcome::Code(0)
+    ));
+    assert_eq!(test.gate.asked.lock().unwrap().len(), asked + 1);
+    let (_, tokens) = admin(&test, "GET", "/tokens", json!({}));
+    assert_eq!(tokens["tokens"][0]["sandbox"], "applied");
+    std::fs::write(&file, "nope").unwrap();
+    assert!(matches!(
+        vault::outcome(&apply, &opts).unwrap(),
+        vault::Outcome::Code(64)
+    ));
     let sandbox = command
         .try_get_matches_from(["vault", "sandbox", "add", "--name", "cli"])
         .unwrap();
@@ -914,4 +941,141 @@ fn refused_prompts_slow_down_and_only_one_is_open_at_a_time() {
     assert_eq!(put(&test).0, 401);
     let (_, value) = put(&test);
     assert_eq!(value["seconds"].as_u64(), Some(1));
+}
+
+#[test]
+fn a_group_of_changes_is_one_prompt_and_applies_all_or_none() {
+    let test = start(true, Box::new(NoVetter));
+    let url = format!("{}/v1/", test.upstream.base);
+    let asked = |test: &Test| test.gate.asked.lock().unwrap().clone();
+    let (status, value) = admin(
+        &test,
+        "PUT",
+        "/keys",
+        json!([
+            { "name": "a", "secret": "sa", "approved_urls": [url] },
+            { "name": "b", "secret": "sb", "approved_urls": [url], "inject": "header:X-Key" },
+        ]),
+    );
+    assert_eq!(status, 200, "{value}");
+    assert_eq!(value["keys"][1]["inject"], "header:X-Key");
+    let prompts = asked(&test);
+    assert_eq!(prompts.len(), 1);
+    assert!(
+        prompts[0]
+            .starts_with("Make these 2 vault changes, all or none: (1) Store the vault key a")
+            && prompts[0].contains("(2) Store the vault key b"),
+        "{}",
+        prompts[0]
+    );
+
+    let (status, value) = admin(
+        &test,
+        "POST",
+        "/batch",
+        json!({ "actions": [
+            { "action": "put_key", "name": "svc", "secret": SECRET, "approved_urls": [url] },
+            { "action": "add_sandbox", "name": "box" },
+            { "action": "create_token", "keys": ["svc", "a"], "sandbox": "box", "mode": "app" },
+            { "action": "delete_key", "name": "b" },
+        ] }),
+    );
+    assert_eq!(status, 200, "{value}");
+    assert_eq!(asked(&test).len(), 2);
+    let results = value["results"].as_array().unwrap();
+    assert_eq!(results[3], json!({ "deleted": "b" }));
+    let socket = PathBuf::from(results[1]["sandbox"]["path"].as_str().unwrap());
+    let token = results[2]["token"].as_str().unwrap();
+    let echo = format!("{url}echo");
+    let headers = [
+        ("X-Vault-Token", token),
+        ("X-Vault-Key", "svc"),
+        ("X-Vault-Url", echo.as_str()),
+    ];
+    assert_eq!(call(&socket, "GET", &headers, "").0, 200);
+
+    let keys_before = admin(&test, "GET", "/keys", json!({})).1;
+    let refused = [
+        (
+            json!([
+                { "action": "put_key", "name": "c", "secret": "sc", "approved_urls": [url] },
+            ]),
+            400,
+        ),
+        (
+            json!({ "actions": [
+                { "action": "put_key", "name": "c", "secret": "sc", "approved_urls": [url] },
+                { "action": "create_token", "keys": ["nope"], "sandbox": "box", "mode": "app" },
+            ] }),
+            404,
+        ),
+        (
+            json!({ "actions": [
+                { "action": "add_sandbox", "name": "two" },
+                { "action": "remove_sandbox", "name": "two" },
+            ] }),
+            400,
+        ),
+        (
+            json!({ "actions": [
+                { "action": "put_key", "name": "c", "secret": "sc", "approved_urls": [url] },
+                { "action": "add_sandbox", "name": "box" },
+            ] }),
+            409,
+        ),
+        (json!({ "actions": [{ "action": "launch_rockets" }] }), 400),
+        (json!({ "actions": [] }), 400),
+    ];
+    for (body, expected) in refused {
+        let (status, value) = admin(&test, "POST", "/batch", body);
+        assert_eq!(status, expected, "{value}");
+    }
+    assert_eq!(asked(&test).len(), 2);
+
+    std::fs::write(test.state.join("not-a-socket"), "x").unwrap();
+    let (status, value) = admin(
+        &test,
+        "POST",
+        "/batch",
+        json!({ "actions": [
+            { "action": "put_key", "name": "c", "secret": "sc", "approved_urls": [url] },
+            { "action": "add_sandbox", "name": "fine" },
+            { "action": "add_sandbox", "name": "broken", "socket": test.state.join("not-a-socket") },
+        ] }),
+    );
+    assert_eq!((status, value["error"].as_str()), (500, Some("internal")));
+    assert_eq!(admin(&test, "GET", "/keys", json!({})).1, keys_before);
+    let sandboxes = admin(&test, "GET", "/sandboxes", json!({})).1;
+    assert_eq!(sandboxes["sandboxes"].as_array().unwrap().len(), 1);
+    let fine = test.state.parent().unwrap().join("s").join("fine");
+    assert!(UnixStream::connect(fine.join("gateway.sock")).is_err());
+
+    test.gate.present.store(false, Ordering::SeqCst);
+    let pair = json!([{ "name": "x1" }, { "name": "x2" }]);
+    assert_eq!(admin(&test, "POST", "/sandboxes", pair.clone()).0, 401);
+    test.gate.present.store(true, Ordering::SeqCst);
+    let (status, value) = admin(&test, "POST", "/sandboxes", pair);
+    assert_eq!(status, 200, "{value}");
+    assert_eq!(value["sandboxes"][1]["name"], "x2");
+    let (status, value) = admin(
+        &test,
+        "POST",
+        "/tokens",
+        json!([
+            { "keys": ["a"], "sandbox": "x1", "mode": "app" },
+            { "keys": ["a"], "sandbox": "x2", "mode": "app" },
+        ]),
+    );
+    assert_eq!(status, 200, "{value}");
+    let ids: Vec<Value> = value["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["id"].clone())
+        .collect();
+    let (status, value) = admin(&test, "DELETE", "/tokens", json!(ids));
+    assert_eq!((status, &value["revoked"]), (200, &json!(ids)));
+    let left = admin(&test, "GET", "/tokens", json!({})).1;
+    assert_eq!(left["tokens"].as_array().unwrap().len(), 1);
+    assert_eq!(admin(&test, "PUT", "/keys", json!({ "name": "z" })).0, 400);
 }
