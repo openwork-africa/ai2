@@ -1,3 +1,4 @@
+import { ListChecks } from "lucide-react";
 import { Link, Outlet, useLocation } from "react-router";
 import { Mark } from "@/components/mark";
 import { Dot } from "@/components/page";
@@ -69,13 +70,23 @@ export function Shell() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="border-t-0 px-3 pb-4">
-          <Link
-            to="/vault"
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-fill-default hover:text-foreground"
-          >
-            <Dot tone={tone} />
-            <span className="truncate">{vaultLine}</span>
-          </Link>
+          <div className="flex items-center gap-1">
+            <Link
+              to="/vault"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-fill-default hover:text-foreground"
+            >
+              <Dot tone={tone} />
+              <span className="truncate">{vaultLine}</span>
+            </Link>
+            <Link
+              to="/setup"
+              aria-label="Setup"
+              title="Setup"
+              className={`flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-fill-default hover:text-foreground ${pathname.startsWith("/setup") ? "bg-fill-default text-foreground" : ""}`}
+            >
+              <ListChecks className="size-4" />
+            </Link>
+          </div>
           <span className="px-2 font-mono text-2xs text-muted-foreground/70">
             {status ? `v${status.version}` : " "}
           </span>

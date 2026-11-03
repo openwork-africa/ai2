@@ -78,7 +78,7 @@ export default function Welcome() {
                 width={1024}
                 height={1024}
                 draggable={false}
-                className="-mt-[calc(var(--art)*0.08)] -mb-[calc(var(--art)*0.14)] aspect-square w-(--art) mix-blend-multiply select-none [--art:min(50svh,26rem,88vw)]"
+                className="-mt-[calc(var(--art)*0.08)] mb-4 aspect-square w-(--art) mix-blend-multiply select-none [--art:min(50svh,26rem,88vw)]"
               />
               <div className="flex max-w-md flex-col items-center gap-3 text-center">
                 <h1 className="font-heading text-2xl font-semibold tracking-tight text-balance sm:text-[1.75rem]">
