@@ -1,4 +1,4 @@
-![The Apps page of ai squared over a sky, ocean and grass scene](.github/banner.jpg)
+![The Apps page of ai squared over a sky, ocean and grass scene](.github/banner-apps.jpg)
 
 # ai squared
 
