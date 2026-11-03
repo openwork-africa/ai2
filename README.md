@@ -298,9 +298,9 @@ fn main() -> std::process::ExitCode {
 - **Feedback**: where you note what you have learned that should be repeated and applied, and how to work on another thing or on the base development architecture.
 - **Planning skill**.
 - **Publish app**.
-- **Live run streaming** on an Agents page, following `/api/runs/{id}/events`.
 - **A friendly localhost URL** for the ai2 UI instead of 127.0.0.1 and a port.
 - **A pretrained security model**.
+- **Agent transcript log**: the full conversation of each agent run, kept and readable after it ends.
 - **Threat-model table**: each threat and whether it is covered, partly covered or not covered, to be discussed before it is written.
 
 ## License
