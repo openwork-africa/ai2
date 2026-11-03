@@ -8,12 +8,18 @@ pub struct McpSubcommand {
 }
 
 pub fn pieces(build: Build) -> Result<::mcp::Pieces> {
-    Ok(::mcp::Pieces::local(
+    #[cfg_attr(not(feature = "agents"), allow(unused_mut))]
+    let mut pieces = ::mcp::Pieces::local(
         build.name,
         build.version,
         std::env::current_exe()?,
         crate::cli::state_dir(build.name),
-    ))
+    );
+    #[cfg(feature = "agents")]
+    {
+        pieces.agents = crate::agents::local(build);
+    }
+    Ok(pieces)
 }
 
 impl Subcommand for McpSubcommand {

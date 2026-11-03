@@ -1,0 +1,22 @@
+[package]
+name = "agents"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "Agents: a harness, a model and a personality kept by name, their runs in a folder, and the review of what each run did"
+
+[features]
+schema = ["dep:schemars", "dep:utoipa"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+harness = { path = "../harness" }
+regex.workspace = true
+schemars = { version = "1", optional = true }
+serde.workspace = true
+serde_json.workspace = true
+utoipa = { version = "6", optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

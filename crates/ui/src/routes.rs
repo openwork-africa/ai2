@@ -1,5 +1,5 @@
 use crate::state::Shared;
-use crate::{apps, bundle, harnesses, reviews, security, status, vault};
+use crate::{agents, apps, bundle, harnesses, reviews, security, status, vault};
 use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use axum::{middleware, Json, Router};
@@ -23,6 +23,7 @@ pub fn api() -> OpenApiRouter<Shared> {
         .merge(apps::routes())
         .merge(harnesses::routes())
         .merge(reviews::routes())
+        .merge(agents::routes())
 }
 
 pub fn router(state: Shared) -> (Router, OpenApi) {

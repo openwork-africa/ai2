@@ -1,4 +1,5 @@
 mod admin;
+mod agents;
 mod apps;
 mod bundle;
 mod harnesses;
@@ -36,6 +37,7 @@ pub const TABS: [&str; 5] = ["apps", "setup", "reviews", "vault", "harnesses"];
 pub struct Options {
     pub home: PathBuf,
     pub admin: PathBuf,
+    pub agents: ::agents::Agents,
 }
 
 pub fn command() -> Command {

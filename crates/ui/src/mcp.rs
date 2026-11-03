@@ -8,6 +8,7 @@ pub fn pieces(state: &Shared) -> mcp::Pieces {
     let mut pieces = mcp::Pieces::local("ai2", env!("CARGO_PKG_VERSION"), bin, state.home.clone());
     pieces.apps = Arc::new(mcp::apps::Local::in_process(state.apps.clone()));
     pieces.vault = Arc::new(mcp::vault::Socket(state.admin.clone()));
+    pieces.agents = state.agents.clone();
     pieces
 }
 

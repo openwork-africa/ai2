@@ -72,6 +72,7 @@ impl Fixture {
         let options = Options {
             home: dir.path().to_path_buf(),
             admin: dir.path().join("admin.sock"),
+            agents: ::agents::Agents::local(dir.path(), ::harness::Registry::public),
         };
         let shared = Arc::new(State::new(1, "nonce".into(), &options).unwrap());
         let (router, _) = OpenApiRouter::new()

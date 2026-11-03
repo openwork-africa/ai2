@@ -8,6 +8,14 @@ fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("vault").join("admin.sock"));
     let matches = ui::command().get_matches();
-    ui::run(&matches, &ui::Options { home, admin })?;
+    let agents = agents::Agents::local(&home, harness::Registry::public);
+    ui::run(
+        &matches,
+        &ui::Options {
+            home,
+            admin,
+            agents,
+        },
+    )?;
     Ok(())
 }

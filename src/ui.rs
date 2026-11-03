@@ -11,10 +11,11 @@ pub struct UiSubcommand {
     pub build: Build,
 }
 
-pub fn options(name: &'static str) -> ::ui::Options {
+pub fn options(build: Build) -> ::ui::Options {
     ::ui::Options {
-        home: crate::cli::state_dir(name),
-        admin: VaultSubcommand::new(name).options().admin,
+        home: crate::cli::state_dir(build.name),
+        admin: VaultSubcommand::new(build.name).options().admin,
+        agents: crate::agents::local(build),
     }
 }
 
@@ -78,7 +79,7 @@ impl Subcommand for UiSubcommand {
     }
     fn run(&self, matches: &ArgMatches) -> Result<ExitCode> {
         inject(self.build);
-        ::ui::run(matches, &options(self.build.name)).map(exit_code)
+        ::ui::run(matches, &options(self.build)).map(exit_code)
     }
 }
 

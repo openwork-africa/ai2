@@ -13,6 +13,7 @@ pub fn features() -> Vec<&'static str> {
         "vault",
         "harness",
         "reviews",
+        "agents",
         #[cfg(feature = "mcp")]
         "mcp",
     ]

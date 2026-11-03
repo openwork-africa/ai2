@@ -28,12 +28,13 @@ impl Subcommand for SetupSubcommand {
 #[cfg(feature = "ui")]
 fn in_the_browser(name: &'static str, options: setup::Options) -> Result<bool> {
     let port = crate::ui::port();
-    crate::ui::inject(crate::cli::Build {
+    let build = crate::cli::Build {
         name,
         ..crate::cli::Build::ai2()
-    });
+    };
+    crate::ui::inject(build);
     ui::setup::run(
-        &crate::ui::options(name),
+        &crate::ui::options(build),
         options,
         ui::setup::Launch { port, open: true },
     )

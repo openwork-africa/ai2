@@ -22,6 +22,7 @@ ai2 --run-path ./notes --objective "Add a search box"
 ```
 
 Checks a folder a coding agent worked in, and gives it two scores.
+`--objective` is what you asked the agent to do, so the reviewer can tell the changes you wanted from the ones you didn't.
 The stack is checked against exploits published in the last few days.
 A reviewer reads the files the run changed, and fixes what a small, safe change can fix.
 It runs four security skills: security-audit, dependency-audit, patch-sweep and owasp-audit (credited in `NOTICE`).
@@ -151,7 +152,7 @@ ai2 --run-path=./site --objective "Add a pricing page" --changed index.html,styl
 | Flag | Default | |
 | --- | --- | --- |
 | `--run-path <dir>` | `.` | the folder the run worked in |
-| `--objective <text>` | | what the run was asked to do |
+| `--objective <text>` | | what you asked the agent to do |
 | `--changed <a,b>` | the whole folder | the files the run changed, relative to the run path |
 | `--providers <file>` | `$AI2_PROVIDERS`, else `~/.ai2/providers.json` | the models file (below) |
 | `--model <provider/id>` | the file's default model | the model the steps ask |
@@ -164,6 +165,19 @@ ai2 --run-path=./site --objective "Add a pricing page" --changed index.html,styl
 
 Without `--json`, ai2 prints the path of `report.html`, or of `review.json` with `--disable-dashboard`. Progress goes to stderr.
 [syft](https://github.com/anchore/syft) on `PATH` lists the libraries; without it the model reads the manifests.
+
+### Agents
+
+An agent is a harness, a model, a personality (its system prompt) and a default folder, kept by name in `$AI2_HOME/agents`. A run starts the harness headless in a folder, keeps its record, output and events in `$AI2_HOME/runs/<id>`, then reviews the folder as `ai2 --run-path <folder> --objective <prompt> --json` does and keeps the review's hash on the record. Each command prints JSON; `ai2 run` prints one event per line, ending with `done`:
+
+| Command | |
+| --- | --- |
+| `ai2 agents create <name> --harness <id> [--model m] [--personality p] [--folder dir]` | keeps an agent; a personality under 280 characters is expanded into a full system prompt with the providers file's model (`--enhancer <provider>/<model-id>` picks another) |
+| `ai2 agents list` / `show <name>` / `remove <name>` | every agent, one, or forgets one |
+| `ai2 agents enhance <name>` | expands its short personality now |
+| `ai2 run --agent <name> \| --harness <id> [--model m] [--personality p] [--folder dir] "<prompt>"` | runs it, then reviews the folder |
+
+The same pieces are the MCP tools `agents_list`, `agents_create`, `agent_run`, `runs_list` and `runs_get`, and the `ai2 ui` routes under `/api/agents` and `/api/runs` (with `/api/runs/{id}/events` as server-sent events). The code is the `agents` crate in `crates/agents`. A private build keeps agents elsewhere by implementing `agents::AgentStore` (list, get, put, remove) and passing it to `ai2::agents::with_store(build, store, registry)`, which adds ai2's enhancer and review launcher (`agents::Agents::new(store, registry, ai2_home)` gives the bare pieces); `AgentsSubcommand`, `RunSubcommand`, the MCP `Pieces::agents` and `ui::Options::agents` take that `Agents`.
 
 ### Providers file
 
@@ -284,6 +298,7 @@ fn main() -> std::process::ExitCode {
 - **Feedback**: where you note what you have learned that should be repeated and applied, and how to work on another thing or on the base development architecture.
 - **Planning skill**.
 - **Publish app**.
+- **Live run streaming** on an Agents page, following `/api/runs/{id}/events`.
 - **A friendly localhost URL** for the ai2 UI instead of 127.0.0.1 and a port.
 - **A pretrained security model**.
 - **Threat-model table**: each threat and whether it is covered, partly covered or not covered, to be discussed before it is written.

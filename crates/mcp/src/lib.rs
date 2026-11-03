@@ -1,3 +1,5 @@
+#[cfg(feature = "agents")]
+pub mod agents;
 #[cfg(feature = "apps")]
 pub mod apps;
 mod failure;
@@ -30,5 +32,7 @@ pub fn features() -> Vec<&'static str> {
         "setup",
         #[cfg(feature = "apps")]
         "apps",
+        #[cfg(feature = "agents")]
+        "agents",
     ]
 }

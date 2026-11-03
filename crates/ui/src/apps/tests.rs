@@ -63,6 +63,7 @@ impl Ui {
         let options = Options {
             home: home.to_path_buf(),
             admin: home.join("admin.sock"),
+            agents: ::agents::Agents::local(home, ::harness::Registry::public),
         };
         let server = runtime.block_on(Server::bind(0, &options)).unwrap();
         let state = server.state();
