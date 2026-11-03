@@ -7,9 +7,12 @@ mod daemon;
 mod gateway;
 pub mod http;
 mod inject;
+mod migrate;
 mod policy;
 mod scrub;
 mod store;
+#[cfg(test)]
+mod testing;
 pub mod time;
 mod vet;
 mod with;

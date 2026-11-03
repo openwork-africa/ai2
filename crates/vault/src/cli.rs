@@ -1,5 +1,6 @@
 use crate::client;
 use crate::daemon::Config;
+use crate::migrate::{self, Migrate};
 use crate::policy::encode_percent;
 use crate::with::{self, With};
 use anyhow::{bail, Result};
@@ -7,7 +8,7 @@ use clap::{ArgMatches, FromArgMatches, Subcommand};
 use keys::tty;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -95,6 +96,24 @@ enum VaultCommand {
         providers: Option<PathBuf>,
         #[arg(long, help = "<provider>/<model-id> for the vetting model")]
         model: Option<String>,
+    },
+    #[command(
+        about = "Finds secrets in plain files and stores the ones you pick; never prints a value or edits a file"
+    )]
+    Migrate {
+        #[arg(
+            long,
+            default_value = ".",
+            help = "The folder to look for .env files under"
+        )]
+        path: PathBuf,
+        #[arg(
+            long,
+            help = "<file>:<line>[=name] of a found secret to store, repeatable"
+        )]
+        take: Vec<String>,
+        #[arg(long, conflicts_with = "take", help = "Store every found secret")]
+        all: bool,
     },
     #[command(
         about = "Runs a command with a token for some keys, and revokes the token when it exits"
@@ -267,6 +286,17 @@ fn usage(message: &str) -> i32 {
 pub struct Admin<'a> {
     opts: &'a Options,
     checked: Cell<bool>,
+    holding: Cell<bool>,
+    held: RefCell<Option<Zeroizing<String>>>,
+}
+
+pub struct Held<'b, 'a>(&'b Admin<'a>);
+
+impl Drop for Held<'_, '_> {
+    fn drop(&mut self) {
+        self.0.holding.set(false);
+        self.0.held.take();
+    }
 }
 
 impl<'a> Admin<'a> {
@@ -274,7 +304,25 @@ impl<'a> Admin<'a> {
         Admin {
             opts,
             checked: Cell::new(false),
+            holding: Cell::new(false),
+            held: RefCell::new(None),
         }
+    }
+
+    pub fn hold(&self) -> Held<'_, 'a> {
+        self.holding.set(true);
+        Held(self)
+    }
+
+    fn passphrase(&self) -> Result<Zeroizing<String>> {
+        if let Some(held) = self.held.borrow().as_ref() {
+            return Ok(held.clone());
+        }
+        let asked = tty::hidden("Vault passphrase: ")?;
+        if self.holding.get() {
+            *self.held.borrow_mut() = Some(asked.clone());
+        }
+        Ok(asked)
     }
 
     fn check_version(&self) {
@@ -301,7 +349,7 @@ impl<'a> Admin<'a> {
     ) -> Result<(u16, Value)> {
         self.check_version();
         let passphrase = if present && self.opts.ask_passphrase {
-            Some(tty::hidden("Vault passphrase: ")?)
+            Some(self.passphrase()?)
         } else {
             None
         };
@@ -309,7 +357,11 @@ impl<'a> Admin<'a> {
         if let Some(passphrase) = passphrase.as_deref() {
             all.push(("X-Vault-Passphrase", passphrase.as_str()));
         }
-        client::call(&self.opts.admin, method, path, body.as_ref(), &all)
+        let answer = client::call(&self.opts.admin, method, path, body.as_ref(), &all)?;
+        if answer.0 == 401 {
+            self.held.take();
+        }
+        Ok(answer)
     }
 
     pub fn call(
@@ -480,6 +532,15 @@ fn execute(command: VaultCommand, opts: &Options) -> Result<i32> {
             })?;
             Ok(exit::OK)
         }
+        VaultCommand::Migrate { path, take, all } => migrate::run(
+            &admin,
+            Migrate {
+                home: std::env::var_os("HOME").map(PathBuf::from),
+                path,
+                take,
+                all,
+            },
+        ),
         VaultCommand::With {
             keys,
             sandbox,
