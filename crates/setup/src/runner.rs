@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use crate::State;
+use anyhow::{bail, Context, Result};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -90,6 +91,18 @@ pub trait Runner {
     fn mkdir(&self, path: &Path, mode: u32) -> Result<()>;
     fn ask_hidden(&self, prompt: &str) -> Result<String>;
     fn say(&self, what: &str);
+
+    fn step_started(&self, _id: &str) {}
+
+    fn step_finished(&self, _id: &str, _state: &State) {}
+
+    fn ask_passphrase(&self, prompt: &str, again: &str) -> Result<String> {
+        let first = self.ask_hidden(prompt)?;
+        if first != self.ask_hidden(again)? {
+            bail!("the two passphrases differ");
+        }
+        Ok(first)
+    }
 }
 
 pub struct System;
@@ -192,9 +205,10 @@ impl Runner for System {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fake"))]
 pub mod fake {
     use super::*;
+    use serde_json::json;
     use std::cell::RefCell;
     use std::collections::{BTreeMap, VecDeque};
     use std::path::PathBuf;
@@ -207,6 +221,8 @@ pub mod fake {
         pub typed: RefCell<VecDeque<String>>,
         pub said: RefCell<Vec<String>>,
         pub inputs: RefCell<Vec<Vec<u8>>>,
+        pub asked: RefCell<Vec<String>>,
+        pub steps: RefCell<Vec<String>>,
     }
 
     impl Fake {
@@ -308,7 +324,8 @@ pub mod fake {
             Ok(())
         }
 
-        fn ask_hidden(&self, _prompt: &str) -> Result<String> {
+        fn ask_hidden(&self, prompt: &str) -> Result<String> {
+            self.asked.borrow_mut().push(prompt.into());
             self.typed
                 .borrow_mut()
                 .pop_front()
@@ -317,6 +334,16 @@ pub mod fake {
 
         fn say(&self, what: &str) {
             self.said.borrow_mut().push(what.into());
+        }
+
+        fn step_started(&self, id: &str) {
+            self.steps.borrow_mut().push(format!("started {id}"));
+        }
+
+        fn step_finished(&self, id: &str, state: &State) {
+            self.steps
+                .borrow_mut()
+                .push(format!("finished {id} {}", json!(state.status)));
         }
     }
 }

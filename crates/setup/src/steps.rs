@@ -338,11 +338,9 @@ impl Step for PresenceStep {
         }
         ctx.runner
             .say("choose the vault passphrase; it is asked for every change to the vault");
-        let first = ctx.runner.ask_hidden("Vault passphrase: ")?;
-        let again = ctx.runner.ask_hidden("The same again: ")?;
-        if first != again {
-            bail!("the two passphrases differ");
-        }
+        let first = ctx
+            .runner
+            .ask_passphrase("Vault passphrase: ", "The same again: ")?;
         let hashed = keys::passphrase::hash(&first)?;
         must(
             ctx.runner

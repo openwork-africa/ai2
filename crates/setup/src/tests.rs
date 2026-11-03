@@ -485,6 +485,127 @@ fn release_urls_and_signatures_are_read_strictly() {
 }
 
 #[test]
+fn every_step_is_announced_before_it_runs_and_after_it_settles() {
+    let fake = Fake::default();
+    linux_fresh(&fake);
+    let master = MemoryKey::default();
+    let (ok, _) = setup(
+        &Host::linux(Some(255)),
+        &linux_options(),
+        &fake,
+        &master,
+        false,
+        false,
+    );
+    assert!(ok);
+    assert_eq!(
+        *fake.steps.borrow(),
+        [
+            "started containers",
+            "finished containers \"ready\"",
+            "started master-key",
+            "finished master-key \"ready\"",
+            "started presence",
+            "finished presence \"ready\"",
+            "started daemon",
+            "finished daemon \"ready\"",
+        ]
+    );
+    assert_eq!(
+        *fake.asked.borrow(),
+        ["Vault passphrase: ", "The same again: "]
+    );
+}
+
+#[test]
+fn steps_after_a_failure_finish_skipped_without_starting() {
+    let fake = Fake::default();
+    let master = MemoryKey::default();
+    setup(
+        &Host::linux(Some(249)),
+        &linux_options(),
+        &fake,
+        &master,
+        false,
+        false,
+    );
+    assert_eq!(
+        *fake.steps.borrow(),
+        [
+            "started containers",
+            "finished containers \"unsupported\"",
+            "started master-key",
+            "finished master-key \"failed\"",
+            "finished presence \"skipped\"",
+            "finished daemon \"skipped\"",
+        ]
+    );
+}
+
+#[test]
+fn the_default_passphrase_prompt_asks_twice_and_refuses_a_mismatch() {
+    use crate::runner::Runner;
+    let fake = Fake::default();
+    fake.type_in("one").type_in("one");
+    assert_eq!(fake.ask_passphrase("A: ", "B: ").unwrap(), "one");
+    fake.type_in("one").type_in("two");
+    let error = fake.ask_passphrase("A: ", "B: ").unwrap_err();
+    assert_eq!(error.to_string(), "the two passphrases differ");
+    assert_eq!(*fake.asked.borrow(), ["A: ", "B: ", "A: ", "B: "]);
+}
+
+#[test]
+fn each_step_has_a_title_a_why_and_a_fact_for_this_kind_of_machine() {
+    use crate::{inputs_info, steps_info};
+    let order: Vec<_> = all().iter().map(|step| step.id()).collect();
+    for host in [
+        Host::mac(26, true),
+        Host::mac(15, true),
+        Host::linux(Some(255)),
+        Host::linux(None),
+    ] {
+        let infos = steps_info(&host.os);
+        assert_eq!(infos.iter().map(|info| info.id).collect::<Vec<_>>(), order);
+        for info in infos {
+            assert!(!info.title.is_empty() && !info.why.is_empty() && !info.fact.is_empty());
+        }
+    }
+    let mac = steps_info(&Host::mac(26, true).os);
+    assert_eq!(mac[0].title, "Containers");
+    assert!(mac[2].why.contains("Touch ID"));
+    assert!(mac[3].fact.contains("launchd"));
+    let linux = steps_info(&Host::linux(Some(255)).os);
+    assert_eq!(linux[0].title, "Sandboxes");
+    assert!(linux[1].why.contains("systemd-creds"));
+    assert!(linux[2].why.contains("passphrase"));
+    let old = steps_info(&Host::mac(15, true).os);
+    assert!(old[0].why.contains("cannot keep agents in a container"));
+    assert_eq!(
+        serde_json::to_value(&mac[1]).unwrap()["title"],
+        "Master key"
+    );
+    let inputs = inputs_info();
+    assert_eq!(inputs[0].kind, "passphrase");
+    assert_eq!(inputs[0].fields.len(), 2);
+    assert!(inputs
+        .iter()
+        .all(|input| input.fields.iter().all(|field| field.secret)));
+    assert_eq!(inputs[1].kind, "sudo");
+}
+
+#[test]
+fn the_host_is_described_for_the_page() {
+    assert_eq!(
+        Host::mac(26, true).to_json(),
+        serde_json::json!({ "os": "macos", "version": 26, "arm64": true, "systemd": null, "user": "ada", "supports_containers": true })
+    );
+    assert_eq!(
+        Host::linux(Some(249)).to_json(),
+        serde_json::json!({ "os": "linux", "version": null, "arm64": null, "systemd": 249, "user": "ada", "supports_containers": false })
+    );
+}
+
+#[test]
 #[ignore]
 fn this_machine_checks_without_changing_anything() {
     let options = Options::new("/usr/local/bin/ai2", "/tmp/ai2-setup-check");

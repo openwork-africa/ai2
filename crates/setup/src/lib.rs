@@ -1,5 +1,6 @@
 pub mod files;
 pub mod host;
+pub mod info;
 pub mod runner;
 pub mod sandbox;
 pub mod steps;
@@ -8,6 +9,7 @@ mod tests;
 
 use anyhow::Result;
 use host::Host;
+pub use info::{inputs_info, steps_info, Field, InputInfo, StepInfo};
 use keys::MasterKey;
 use runner::{Runner, System};
 use serde::Serialize;
@@ -149,6 +151,7 @@ pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
         let state = if stopped {
             State::new(Status::Skipped)
         } else {
+            ctx.runner.step_started(step.id());
             match settles(step.as_ref(), ctx) {
                 Ok(state) => state,
                 Err(error) => {
@@ -157,6 +160,7 @@ pub fn run_steps(steps: &[Box<dyn Step>], ctx: &Context) -> (bool, Value) {
                 }
             }
         };
+        ctx.runner.step_finished(step.id(), &state);
         for warning in &state.warnings {
             ctx.runner.say(warning);
         }
@@ -187,13 +191,16 @@ pub fn run(matches: &clap::ArgMatches, opts: &Options) -> Result<bool> {
 }
 
 pub fn setup(opts: &Options, check_only: bool) -> Result<(bool, Value)> {
-    let runner = System;
-    let host = Host::detect(&runner);
+    setup_with(opts, check_only, &System)
+}
+
+pub fn setup_with(opts: &Options, check_only: bool, runner: &dyn Runner) -> Result<(bool, Value)> {
+    let host = Host::detect(runner);
     let platform = keys::platform()?;
     let ctx = Context {
         host: &host,
         options: opts,
-        runner: &runner,
+        runner,
         master: platform.master.as_ref(),
         presence: &touch_id,
         check_only,
