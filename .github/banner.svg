@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="ai squared — the Apps page over a sky, ocean and grass scene">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8ec9ee"/>
+      <stop offset="1" stop-color="#e6f4fc"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#57b6d9"/>
+      <stop offset="1" stop-color="#2e7fb8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#sky)"/>
+  <circle cx="1040" cy="86" r="42" fill="#ffd66e"/>
+  <g fill="#ffffff" opacity="0.85">
+    <ellipse cx="220" cy="86" rx="86" ry="22"/>
+    <ellipse cx="280" cy="70" rx="58" ry="18"/>
+    <ellipse cx="760" cy="52" rx="66" ry="16"/>
+  </g>
+
+  <rect y="452" width="1200" height="120" fill="url(#sea)"/>
+  <g stroke="#ffffff" stroke-width="3" fill="none" opacity="0.4" stroke-linecap="round">
+    <path d="M40 500 q30 -12 60 0 t60 0 t60 0"/>
+    <path d="M880 528 q30 -12 60 0 t60 0 t60 0"/>
+  </g>
+
+  <path d="M0 560 Q 300 500 620 556 T 1200 548 V800 H0 Z" fill="#8fce7a"/>
+  <path d="M0 620 Q 360 566 760 622 T 1200 612 V800 H0 Z" fill="#69ab5c"/>
+
+  <g>
+    <g transform="translate(28 640)">
+      <rect x="0" y="18" width="54" height="38" fill="#fdf6e3"/>
+      <path d="M-4 20 L27 -6 L58 20 Z" fill="#b8542f"/>
+      <rect x="22" y="34" width="11" height="22" fill="#7a4a2b"/>
+    </g>
+    <g transform="translate(112 668) scale(0.8)">
+      <rect x="0" y="18" width="54" height="38" fill="#eef3fb"/>
+      <path d="M-4 20 L27 -6 L58 20 Z" fill="#46648c"/>
+      <rect x="22" y="34" width="11" height="22" fill="#33475f"/>
+    </g>
+    <g transform="translate(1064 648)">
+      <rect x="0" y="18" width="54" height="38" fill="#fdf6e3"/>
+      <path d="M-4 20 L27 -6 L58 20 Z" fill="#b8542f"/>
+      <rect x="22" y="34" width="11" height="22" fill="#7a4a2b"/>
+    </g>
+    <g transform="translate(976 676) scale(0.75)">
+      <rect x="0" y="18" width="54" height="38" fill="#f3eafd"/>
+      <path d="M-4 20 L27 -6 L58 20 Z" fill="#5d4a86"/>
+      <rect x="22" y="34" width="11" height="22" fill="#41325f"/>
+    </g>
+  </g>
+
+  <g transform="translate(40 30)">
+    <rect width="56" height="56" rx="14" fill="#141518"/>
+    <text x="28" y="39" font-family="ui-rounded, 'SF Pro Rounded', system-ui, sans-serif" font-size="26" font-weight="700" fill="#ffffff" text-anchor="middle">ai²</text>
+    <text x="70" y="38" font-family="system-ui, -apple-system, sans-serif" font-size="30" font-weight="650" fill="#14202b">ai squared</text>
+    <text x="71" y="58" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" fill="#3d566b">your apps · your agents · your keys</text>
+  </g>
+
+  <rect x="76" y="106" width="1048" height="664" rx="20" fill="#ffffff"/>
+  <image href="home.png" x="88" y="118" width="1024" height="640"/>
+</svg>
