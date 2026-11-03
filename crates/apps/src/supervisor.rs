@@ -290,14 +290,15 @@ impl Supervisor {
             }),
         );
         let mut tasks = Vec::new();
+        let mut pumps = Vec::new();
         if piped {
             let sink = Arc::new(Mutex::new(Sink::new(&self.store().log_path(&app.id), file)));
             let logs = self.app_logs(&app.id);
             if let Some(out) = child.stdout.take() {
-                pump(out, Stream::Out, logs.clone(), sink.clone());
+                pumps.push(pump(out, Stream::Out, logs.clone(), sink.clone()));
             }
             if let Some(err) = child.stderr.take() {
-                pump(err, Stream::Err, logs, sink);
+                pumps.push(pump(err, Stream::Err, logs, sink));
             }
         } else {
             tasks.push(self.follow(&app.id));
@@ -316,6 +317,9 @@ impl Supervisor {
                     signal: None,
                 },
             };
+            for done in pumps {
+                let _ = tokio::time::timeout(Duration::from_secs(2), done).await;
+            }
             let delay = me.ended(&id, generation, exit, piped);
             let _ = tx.send(Some(exit));
             if let Some(delay) = delay {
@@ -673,12 +677,12 @@ fn pump(
     stream: Stream,
     logs: Arc<Logs>,
     sink: Arc<Mutex<Sink>>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut lines = BufReader::new(pipe).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             sink.lock().unwrap_or_else(|e| e.into_inner()).write(&line);
             logs.push(stream, line);
         }
-    });
+    })
 }
