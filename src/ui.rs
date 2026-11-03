@@ -39,7 +39,7 @@ pub fn launch(build: Build, bin: &Path, review: &NewReview) -> Result<Launched> 
     if !folder.is_dir() {
         anyhow::bail!("{} is not a folder", folder.display());
     }
-    let hash = default_out(build, &folder)
+    let hash = default_out(build.name, &folder)
         .file_name()
         .map(|hash| hash.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -116,7 +116,7 @@ mod tests {
         );
         assert_eq!(
             launched.hash,
-            default_out(Build::ai2(), &real)
+            default_out("ai2", &real)
                 .file_name()
                 .unwrap()
                 .to_string_lossy()

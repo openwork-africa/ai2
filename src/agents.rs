@@ -124,7 +124,7 @@ impl Review for Launcher {
             bail!("the review ended with an error: {last}");
         }
         let review = serde_json::from_str(&text).context("the review printed no JSON")?;
-        let hash = default_out(self.build, folder)
+        let hash = default_out(self.build.name, folder)
             .file_name()
             .map(|hash| hash.to_string_lossy().into_owned())
             .unwrap_or_default();
@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(reviewed.review["objective"], "fix it");
         assert_eq!(
             reviewed.hash,
-            default_out(Build::ai2(), folder.path())
+            default_out("ai2", folder.path())
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
