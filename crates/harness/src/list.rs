@@ -279,6 +279,21 @@ pub fn public() -> Vec<Setup> {
             ),
             "deepseek.svg",
         ),
+        signs_in(
+            agent(
+                "fx",
+                "fx",
+                "fx",
+                "curl -fsSL https://fx.sh/setup.sh | bash".into(),
+                vec![],
+                Headless {
+                    personality: flag("--system"),
+                    ..headless("fx ask", "--json --full-access --no-save")
+                },
+            ),
+            "fx login vercel --api-key",
+            "Paste a Vercel AI Gateway API key when asked.",
+        ),
         logo(
             Setup {
                 use_text: some(concat!(
