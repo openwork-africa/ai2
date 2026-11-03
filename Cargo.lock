@@ -26,10 +26,12 @@ name = "ai2"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "apps",
  "clap",
  "harness",
  "include_dir",
  "keys",
+ "mcp",
  "os_info",
  "regex",
  "serde",
@@ -37,6 +39,7 @@ dependencies = [
  "setup",
  "tempfile",
  "tokei",
+ "ui",
  "ureq",
  "vault",
  "vault-ui",
@@ -1505,6 +1508,7 @@ name = "mcp"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "apps",
  "clap",
  "harness",
  "rmcp",
@@ -3008,6 +3012,7 @@ dependencies = [
  "harness",
  "include_dir",
  "keys",
+ "mcp",
  "mime_guess",
  "serde",
  "serde_json",

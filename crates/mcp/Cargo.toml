@@ -6,14 +6,15 @@ license = "Apache-2.0"
 description = "Every ai2 piece as MCP tools, over stdio and streamable HTTP, with an OpenAPI document made from the tool list"
 
 [features]
-default = ["harness", "vault", "setup"]
+default = ["harness", "vault", "setup", "apps"]
 harness = ["dep:harness"]
 vault = ["dep:vault"]
 setup = ["dep:setup"]
-apps = []
+apps = ["dep:apps"]
 
 [dependencies]
 anyhow.workspace = true
+apps = { path = "../apps", optional = true }
 clap.workspace = true
 harness = { path = "../harness", features = ["schema"], optional = true }
 rmcp = { version = "3.8", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }

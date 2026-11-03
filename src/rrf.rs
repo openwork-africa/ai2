@@ -388,7 +388,7 @@ pub fn wait(child: &mut Child, label: &str, limit: Duration) -> Result<std::proc
 }
 
 fn on_path(name: &str) -> bool {
-    harness::state::on_path(name, &std::env::var("PATH").unwrap_or_default())
+    crate::doctor::on_path(name, std::env::var_os("PATH").as_deref()).is_some()
 }
 
 fn muse_signed_in() -> bool {
