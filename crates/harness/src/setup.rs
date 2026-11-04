@@ -88,6 +88,18 @@ impl Registry {
         registry
     }
 
+    pub fn select(&mut self, ids: &[&str]) -> Vec<String> {
+        let mut dropped = Vec::new();
+        self.setups.retain(|setup| {
+            let keep = ids.contains(&setup.id.as_str());
+            if !keep {
+                dropped.push(setup.id.clone());
+            }
+            keep
+        });
+        dropped
+    }
+
     pub fn put(&mut self, setup: Setup, before: Option<&str>) {
         if let Some(at) = self.setups.iter().position(|known| known.id == setup.id) {
             self.setups[at] = setup;

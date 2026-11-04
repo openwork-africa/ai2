@@ -119,7 +119,7 @@ Use ai2 to register the app in this folder, start it, and run a security review 
 
 ## ai2-muse edition
 
-[ai2-muse](https://github.com/openwork-africa/ai2-muse) is a Linux-only build with just the Muse harness baked in: no dashboard, no MCP, no other harnesses. Setup runs the Linux steps only. It lives in its own repo and pins `ai2` as a dependency with the `muse-edition` feature; releases are published from tags like `v0.1.0` there, built for Linux x86_64 and arm64 only. The harness list is chosen at compile time: the `muse-only` cargo feature on the `harness` crate (and on `ai2` itself) bakes in only Muse, including the review auto-order.
+[ai2-museedition](https://github.com/openwork-africa/ai2-museedition) is a Linux-only edition with just the Muse harness: no dashboard, no MCP, no other harnesses. Setup runs the Linux steps only. It lives in its own repo and builds on `ai2` as a dependency, choosing its harness subset through the registry; releases are published from tags like `v0.1.0` there, built for Linux x86_64 and arm64 only. The same hooks are open to anyone: `Registry::select` bakes a harness subset, `builtin_with` takes the reviewers, and cargo features choose the crates, so other editions can be built the same way.
 
 After a review, `--document page.html` signs an HTML document with this machine's key and writes `page.signed.html` next to it:
 

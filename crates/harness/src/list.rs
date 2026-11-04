@@ -183,35 +183,7 @@ fn pi_setup() -> Setup {
 }
 
 pub fn public() -> Vec<Setup> {
-    #[cfg(feature = "muse-only")]
-    return std::iter::once(muse_setup()).map(skilled).collect();
-    #[cfg(not(feature = "muse-only"))]
-    return every().into_iter().map(skilled).collect();
-}
-
-fn muse_setup() -> Setup {
-    logo(
-        signs_in(
-            agent(
-                "muse",
-                "Muse Code",
-                "muse",
-                "curl -fsSL https://dev.meta.ai/install.sh | bash".into(),
-                vec![
-                    ModelChoice::new("muse-wonder-1.0", "Muse Wonder 1.0"),
-                    ModelChoice::new("muse-spark-1.3", "Muse Spark 1.3"),
-                    ModelChoice::new("muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"),
-                ],
-                Headless {
-                    personality: Some(Personality::Given(muse_personality)),
-                    ..headless("muse exec", "--json --yolo --disable-request-user-input")
-                },
-            ),
-            "muse login",
-            "Open the sign-in page, sign in with your Meta account, and check the code it shows matches the one below.",
-        ),
-        "muse.svg",
-    )
+    every().into_iter().map(skilled).collect()
 }
 
 fn every() -> Vec<Setup> {
@@ -288,7 +260,28 @@ fn every() -> Vec<Setup> {
             ),
             "antigravity.svg",
         ),
-        muse_setup(),
+        logo(
+            signs_in(
+                agent(
+                    "muse",
+                    "Muse Code",
+                    "muse",
+                    "curl -fsSL https://dev.meta.ai/install.sh | bash".into(),
+                    vec![
+                        ModelChoice::new("muse-wonder-1.0", "Muse Wonder 1.0"),
+                        ModelChoice::new("muse-spark-1.3", "Muse Spark 1.3"),
+                        ModelChoice::new("muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"),
+                    ],
+                    Headless {
+                        personality: Some(Personality::Given(muse_personality)),
+                        ..headless("muse exec", "--json --yolo --disable-request-user-input")
+                    },
+                ),
+                "muse login",
+                "Open the sign-in page, sign in with your Meta account, and check the code it shows matches the one below.",
+            ),
+            "muse.svg",
+        ),
         signs_in(
             agent(
                 "hermes",

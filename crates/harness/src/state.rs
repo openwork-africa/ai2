@@ -87,21 +87,17 @@ mod tests {
             .unwrap();
         assert!(states.of("claude").installed);
         let registry = crate::Registry::public();
-        let first = registry.all().into_iter().next().unwrap();
-        assert!(!is_connected(first, states.of("claude")));
+        let claude = registry.get("claude").unwrap();
+        assert!(!is_connected(claude, states.of("claude")));
         assert!(is_connected(
-            first,
+            claude,
             State {
                 installed: true,
                 signed_in: true
             }
         ));
-        let tool = Setup {
-            id: "tool".into(),
-            ..Setup::default()
-        };
         assert!(is_connected(
-            &tool,
+            registry.get("pi").unwrap(),
             State {
                 installed: true,
                 signed_in: false

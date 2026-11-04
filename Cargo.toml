@@ -17,8 +17,6 @@ path = "src/main.rs"
 
 [features]
 default = ["harness", "vault", "setup", "apps", "agents", "ui", "mcp", "signature"]
-muse-edition = ["muse-only", "vault", "setup", "apps", "agents", "signature"]
-muse-only = ["harness/muse-only"]
 signature = ["dep:signature"]
 harness = ["dep:harness", "mcp?/harness"]
 vault = ["dep:vault", "dep:keys", "mcp?/vault"]
