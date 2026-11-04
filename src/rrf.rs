@@ -212,6 +212,9 @@ pub fn default_reviewers() -> Vec<Reviewer> {
     )
 }
 #[cfg(feature = "harness")]
+#[cfg(feature = "muse-only")]
+pub const AUTO_ORDER: [&str; 1] = ["muse"];
+#[cfg(not(feature = "muse-only"))]
 pub const AUTO_ORDER: [&str; 4] = ["muse", "claude", "codex", "pi"];
 #[cfg(feature = "harness")]
 pub fn registry_reviewers(
@@ -774,7 +777,11 @@ mod tests {
     fn fake_registry() -> ::harness::Registry {
         let public = ::harness::Registry::public();
         let mut registry = ::harness::Registry::default();
-        for id in ["claude", "codex", "hermes", "gh"] {
+        #[cfg(feature = "muse-only")]
+        let ids = ["muse"];
+        #[cfg(not(feature = "muse-only"))]
+        let ids = ["claude", "codex", "hermes", "gh"];
+        for id in ids {
             registry.put(public.get(id).unwrap().clone(), None);
         }
         registry
@@ -786,6 +793,14 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let registry = fake_registry();
         let rs = registry_reviewers(&registry, home.path(), home.path());
+        #[cfg(feature = "muse-only")]
+        assert_eq!(
+            rs.iter()
+                .map(|r| (r.id.as_str(), r.auto))
+                .collect::<Vec<_>>(),
+            [("muse", true)]
+        );
+        #[cfg(not(feature = "muse-only"))]
         assert_eq!(
             rs.iter()
                 .map(|r| (r.id.as_str(), r.auto))
@@ -816,22 +831,25 @@ mod tests {
             assert!(path.starts_with(&home.path().join(".local/bin").display().to_string()));
             args(&command)
         };
-        assert_eq!(
-            line("claude", None),
-            ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --add-dir '/s'"]
-        );
-        assert_eq!(
-            line("claude", Some("opus")),
-            ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --add-dir '/s'"]
-        );
-        assert_eq!(
-            line("codex", None),
-            ["-c", "cd '/w' && exec codex exec 'review it' --json --dangerously-bypass-approvals-and-sandbox --add-dir '/s'"]
-        );
-        assert_eq!(
-            line("hermes", Some("x")),
-            ["-c", "cd '/w' && exec hermes chat -q 'review it' --format stream-json --yolo --model 'x'"]
-        );
+        #[cfg(not(feature = "muse-only"))]
+        {
+            assert_eq!(
+                line("claude", None),
+                ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --add-dir '/s'"]
+            );
+            assert_eq!(
+                line("claude", Some("opus")),
+                ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --add-dir '/s'"]
+            );
+            assert_eq!(
+                line("codex", None),
+                ["-c", "cd '/w' && exec codex exec 'review it' --json --dangerously-bypass-approvals-and-sandbox --add-dir '/s'"]
+            );
+            assert_eq!(
+                line("hermes", Some("x")),
+                ["-c", "cd '/w' && exec hermes chat -q 'review it' --format stream-json --yolo --model 'x'"]
+            );
+        }
     }
 
     #[cfg(feature = "harness")]
@@ -841,23 +859,26 @@ mod tests {
         let bin = home.path().join(".local/bin");
         std::fs::create_dir_all(&bin).unwrap();
         let registry = fake_registry();
-        let claude = registry.get("claude").unwrap();
-        assert!(!ready_to_run(claude, home.path(), home.path()));
-        std::fs::write(bin.join("claude"), "#!/bin/sh\n").unwrap();
+        #[cfg(feature = "muse-only")]
+        let id = "muse";
+        #[cfg(not(feature = "muse-only"))]
+        let id = "claude";
+        let setup = registry.get(id).unwrap();
+        assert!(!ready_to_run(setup, home.path(), home.path()));
+        std::fs::write(bin.join(id), "#!/bin/sh\n").unwrap();
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
-            .unwrap();
-        assert!(!ready_to_run(claude, home.path(), home.path()));
+        std::fs::set_permissions(bin.join(id), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!ready_to_run(setup, home.path(), home.path()));
         ::harness::state::States::at(home.path())
             .set(
-                "claude",
+                id,
                 ::harness::state::State {
                     installed: true,
                     signed_in: true,
                 },
             )
             .unwrap();
-        assert!(ready_to_run(claude, home.path(), home.path()));
+        assert!(ready_to_run(setup, home.path(), home.path()));
     }
 
     #[test]

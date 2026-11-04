@@ -16,6 +16,7 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    #[cfg(not(feature = "muse-only"))]
     #[test]
     fn everything_in_the_environment_has_an_installer_and_what_signs_in_says_how() {
         let registry = Registry::public();
@@ -65,6 +66,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "muse-only"))]
     #[test]
     fn a_run_line_names_its_agent_and_quotes_the_prompt() {
         let registry = Registry::public();
@@ -95,6 +97,7 @@ mod tests {
         assert_eq!(sh_quote("a'b"), r#"'a'"'"'b'"#);
     }
 
+    #[cfg(not(feature = "muse-only"))]
     #[test]
     fn pi_is_installed_from_its_package_without_its_scripts_the_old_one_taken_out_first() {
         let registry = Registry::public();
@@ -111,6 +114,7 @@ mod tests {
         assert!(!pi.install.contains("deno install --global"));
     }
 
+    #[cfg(not(feature = "muse-only"))]
     #[test]
     fn a_task_line_skips_prompts_names_the_model_and_gives_the_personality_its_way() {
         let registry = Registry::public();
@@ -157,9 +161,23 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "muse-only"))]
+    #[cfg(feature = "muse-only")]
+    #[test]
+    fn the_muse_only_build_lists_just_muse() {
+        let registry = Registry::public();
+        let ids: Vec<&str> = registry
+            .all()
+            .iter()
+            .map(|setup| setup.id.as_str())
+            .collect();
+        assert_eq!(ids, ["muse"]);
+        assert!(registry.get("claude").is_none());
+    }
+
     #[test]
     fn a_registry_takes_more_setups_in_place_or_before_another() {
-        let mut registry = Registry::public();
+        let mut registry = Registry::default();
         let extra = |id: &str, label: &str| Setup {
             id: id.into(),
             label: label.into(),
@@ -168,16 +186,16 @@ mod tests {
             agent: Some(Agent::default()),
             ..Setup::default()
         };
-        registry.put(extra("first", "First"), Some("pi"));
-        registry.put(extra("pi", "Other pi"), None);
+        registry.put(extra("tool", "Tool"), None);
+        registry.put(extra("first", "First"), Some("tool"));
+        registry.put(extra("tool", "Other tool"), None);
         registry.put(extra("last", "Last"), None);
         let ids: Vec<&str> = registry
             .all()
             .iter()
             .map(|setup| setup.id.as_str())
             .collect();
-        assert_eq!(ids[3..5], ["first", "pi"]);
-        assert_eq!(ids[ids.len() - 2..], ["last", "gh"]);
-        assert_eq!(registry.get("pi").unwrap().label, "Other pi");
+        assert_eq!(ids, ["first", "tool", "last"]);
+        assert_eq!(registry.get("tool").unwrap().label, "Other tool");
     }
 }

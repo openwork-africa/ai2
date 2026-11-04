@@ -7,6 +7,7 @@ description = "Installs coding agents, signs in to them and builds their headles
 
 [features]
 schema = ["dep:schemars"]
+muse-only = []
 
 [dependencies]
 anyhow.workspace = true

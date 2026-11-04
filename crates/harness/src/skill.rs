@@ -75,24 +75,40 @@ mod tests {
     fn the_skill_goes_only_into_the_harness_skills_folder() {
         let home = tempfile::tempdir().unwrap();
         let registry = Registry::public();
-        let claude = registry.get("claude").unwrap();
-        assert!(!installed(claude, home.path()));
-        let written = install(claude, home.path()).unwrap();
-        assert_eq!(written, home.path().join(".claude/skills/ai2/SKILL.md"));
-        assert!(installed(claude, home.path()));
-        install(claude, home.path()).unwrap();
+        let first = registry
+            .all()
+            .into_iter()
+            .find(|setup| setup.skills.is_some())
+            .unwrap();
+        assert!(!installed(first, home.path()));
+        let written = install(first, home.path()).unwrap();
+        assert_eq!(
+            written,
+            home.path()
+                .join(first.skills.as_deref().unwrap())
+                .join("ai2/SKILL.md")
+        );
+        assert!(installed(first, home.path()));
+        install(first, home.path()).unwrap();
         let mut files = Vec::new();
         every_file(home.path(), &mut files);
         assert_eq!(files, vec![written.clone()]);
         assert_eq!(std::fs::read_to_string(&written).unwrap(), AI2);
         assert!(AI2.starts_with("---\nname: ai2\n"));
 
-        let gh = registry.get("gh").unwrap();
-        assert!(install(gh, home.path()).is_err());
-        let codex = registry.get("codex").unwrap();
+        let bare = Setup {
+            id: "tool".into(),
+            label: "Tool".into(),
+            ..Setup::default()
+        };
+        assert!(install(&bare, home.path()).is_err());
+        let other = Setup {
+            skills: Some(".other/skills".into()),
+            ..bare.clone()
+        };
         assert_eq!(
-            install(codex, home.path()).unwrap(),
-            home.path().join(".agents/skills/ai2/SKILL.md")
+            install(&other, home.path()).unwrap(),
+            home.path().join(".other/skills/ai2/SKILL.md")
         );
     }
 
@@ -101,10 +117,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let away = tempfile::tempdir().unwrap();
         let registry = Registry::public();
-        let claude = registry.get("claude").unwrap();
-        std::fs::create_dir_all(home.path().join(".claude/skills")).unwrap();
-        std::os::unix::fs::symlink(away.path(), home.path().join(".claude/skills/ai2")).unwrap();
-        assert!(install(claude, home.path()).is_err());
+        let first = registry
+            .all()
+            .into_iter()
+            .find(|setup| setup.skills.is_some())
+            .unwrap();
+        let dir = folder(first, home.path()).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(away.path(), dir.join("ai2")).unwrap();
+        assert!(install(first, home.path()).is_err());
         assert_eq!(std::fs::read_dir(away.path()).unwrap().count(), 0);
 
         let climbing = Setup {
@@ -137,6 +158,9 @@ mod tests {
             .filter(|setup| setup.skills.is_some())
             .map(|setup| setup.id.as_str())
             .collect();
+        #[cfg(feature = "muse-only")]
+        assert_eq!(with, ["muse"]);
+        #[cfg(not(feature = "muse-only"))]
         assert_eq!(
             with,
             [
