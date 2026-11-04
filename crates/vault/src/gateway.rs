@@ -122,7 +122,7 @@ pub fn handle(
             (Some(allowed.token.id.clone()), status, None)
         }
     };
-    let _ = vault.store().audit(&AuditLine {
+    if let Err(error) = vault.store().audit(&AuditLine {
         time: time::stamp(),
         token: token_id.as_deref(),
         sandbox,
@@ -133,7 +133,9 @@ pub fn handle(
         decision: if reason.is_some() { "deny" } else { "allow" },
         status,
         reason,
-    });
+    }) {
+        eprintln!("ai2 vault: the audit line could not be written: {error:#}");
+    }
 }
 
 fn bearer(request: &Request) -> Option<&str> {
@@ -222,10 +224,19 @@ fn decide(vault: &Vault, call: &Call) -> Result<Allowed, Denial> {
         Mode::Agent => agent_scope(vault, &token, &key, call, (url_text, &url)),
     }
     .map_err(with_intent)?;
-    use_once(vault, &token.id).map_err(with_intent)?;
+    let (fresh_token, fresh_key) =
+        lookup(&vault.store(), call).map_err(|denial| with_intent(denial.reason))?;
+    if fresh_key.approved_urls != key.approved_urls
+        || fresh_key.inject != key.inject
+        || fresh_key.nonce != key.nonce
+        || fresh_key.secret != key.secret
+    {
+        return Err(with_intent("key_not_allowed"));
+    }
+    use_once(vault, &fresh_token.id).map_err(with_intent)?;
     Ok(Allowed {
-        token,
-        key,
+        token: fresh_token,
+        key: fresh_key,
         url: url_text.to_string(),
     })
 }
@@ -293,11 +304,13 @@ fn vet(
     url: &policy::Url,
 ) -> Result<(), &'static str> {
     let http = vault.config.http_prefixes;
+    let fresh_after = time::now().saturating_sub(24 * 3_600);
     let cached: Vec<String> = vault
         .store()
         .vetted
         .iter()
         .filter(|v| v.key == key.name && v.intent == intent)
+        .filter(|v| time::epoch_of(&v.created).is_some_and(|made| made >= fresh_after))
         .map(|v| v.prefix.clone())
         .collect();
     if policy::allowed(url, &cached, http) {
@@ -321,6 +334,9 @@ fn vet(
         return Err("vetting_unavailable");
     }
     let mut store = vault.store();
+    store
+        .vetted
+        .retain(|v| !(v.key == key.name && v.intent == intent && v.prefix == verdict.prefix));
     store.vetted.push(Vetted {
         key: key.name.clone(),
         intent: intent.to_string(),

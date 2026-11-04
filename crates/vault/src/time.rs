@@ -63,7 +63,37 @@ pub fn ttl(text: &str) -> Result<u64> {
     if number == 0 {
         bail!("a token's ttl must be more than zero");
     }
-    Ok(number.saturating_mul(scale))
+    let secs = number.saturating_mul(scale);
+    if secs > 30 * 86_400 {
+        bail!("a token's ttl can be at most 30d");
+    }
+    Ok(secs)
+}
+
+pub fn epoch_of(text: &str) -> Option<u64> {
+    let (date, clock) = text.split_once('T')?;
+    let mut date = date.split('-');
+    let year: i64 = date.next()?.parse().ok()?;
+    let month: u32 = date.next()?.parse().ok()?;
+    let day: u32 = date.next()?.parse().ok()?;
+    let mut clock = clock.trim_end_matches('Z').split(':');
+    let hour: u64 = clock.next()?.parse().ok()?;
+    let minute: u64 = clock.next()?.parse().ok()?;
+    let second: u64 = clock.next()?.parse().ok()?;
+    let days = days_from_civil(year, month, day);
+    u64::try_from(days * 86_400)
+        .ok()?
+        .checked_add(hour * 3_600 + minute * 60 + second)
+}
+
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let mp = if month > 2 { month - 3 } else { month + 9 } as i64;
+    let doy = (153 * mp + 2) / 5 + day as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 #[cfg(test)]
@@ -80,6 +110,8 @@ mod tests {
             (span(28_800), span(2_592_000), span(90)),
             ("8h".into(), "30d".into(), "90s".into())
         );
+        assert!(ttl("31d").is_err() && ttl("1000000000000d").is_err());
+        assert_eq!(epoch_of(&rfc3339(1_700_000_000)), Some(1_700_000_000));
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339(1_700_000_000), "2023-11-14T22:13:20Z");
     }

@@ -40,7 +40,7 @@ pub fn open(key: &[u8; 32], name: &str, sealed: &Sealed) -> Result<Zeroizing<Str
     if nonce.len() != 24 {
         return Err(anyhow!("the stored nonce for {name} is not 24 bytes"));
     }
-    let plain = Zeroizing::new(
+    let mut plain = Zeroizing::new(
         XChaCha20Poly1305::new(key.into())
             .decrypt(
                 XNonce::from_slice(&nonce),
@@ -51,8 +51,8 @@ pub fn open(key: &[u8; 32], name: &str, sealed: &Sealed) -> Result<Zeroizing<Str
             )
             .map_err(|_| anyhow!("the secret for {name} does not open with this master key"))?,
     );
-    let text = std::str::from_utf8(&plain)?;
-    Ok(Zeroizing::new(text.to_string()))
+    let text = String::from_utf8(std::mem::take(&mut *plain))?;
+    Ok(Zeroizing::new(text))
 }
 
 pub fn hex(bytes: &[u8]) -> String {

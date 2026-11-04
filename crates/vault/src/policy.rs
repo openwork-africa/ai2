@@ -53,9 +53,13 @@ fn unsafe_segment(segment: &str) -> bool {
 }
 
 pub fn within(url: &Url, prefix: &Url) -> bool {
-    url.scheme == prefix.scheme
-        && url.authority == prefix.authority
-        && url.rest.starts_with(&prefix.rest)
+    if url.scheme != prefix.scheme || url.authority != prefix.authority {
+        return false;
+    }
+    let Some(rest) = url.rest.strip_prefix(&prefix.rest) else {
+        return false;
+    };
+    rest.is_empty() || prefix.rest.ends_with(['/', '?']) || rest.starts_with(['/', '?'])
 }
 
 pub fn allowed(url: &Url, prefixes: &[String], allow_http: bool) -> bool {
@@ -145,6 +149,16 @@ mod tests {
         let host = url("https://api.stripe.com");
         assert!(within(&url("https://api.stripe.com/anything?x=1"), &host));
         assert!(!within(&url("https://api.stripe.com:8443/"), &host));
+    }
+
+    #[test]
+    fn a_prefix_without_a_trailing_slash_stops_at_a_segment() {
+        let prefix = url("https://api.stripe.com/v1");
+        assert!(within(&url("https://api.stripe.com/v1"), &prefix));
+        assert!(within(&url("https://api.stripe.com/v1/charges"), &prefix));
+        assert!(!within(&url("https://api.stripe.com/v1evil"), &prefix));
+        assert!(!within(&url("https://api.stripe.com/v10"), &prefix));
+        assert!(!within(&url("https://api.stripe.com/v1-admin"), &prefix));
     }
 
     #[test]

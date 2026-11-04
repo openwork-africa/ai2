@@ -17,7 +17,18 @@ pub struct AppToken {
 }
 
 pub fn file(home: &Path, key: &str) -> PathBuf {
-    home.join(FOLDER).join(format!("{key}.json"))
+    let valid = !key.is_empty()
+        && key.len() <= 64
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+        && !key.starts_with('.');
+    let name = if valid {
+        key.to_string()
+    } else {
+        crate::crypto::hash(key)
+    };
+    home.join(FOLDER).join(format!("{name}.json"))
 }
 
 pub fn load(home: &Path, key: &str) -> Option<AppToken> {

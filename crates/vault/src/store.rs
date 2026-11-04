@@ -100,6 +100,7 @@ pub enum Endpoint {
         #[schema(value_type = String)]
         path: PathBuf,
     },
+    #[allow(dead_code)]
     Tcp {
         listen: String,
         #[schema(value_type = Vec<String>)]
@@ -153,6 +154,18 @@ pub struct Store {
 impl Store {
     pub fn open(dir: &Path) -> Result<Store> {
         private_dir(dir)?;
+        for file in [
+            "keys.json",
+            "tokens.json",
+            "sandboxes.json",
+            "vetted.json",
+            "audit.jsonl",
+        ] {
+            let path = dir.join(file);
+            if path.is_file() && !path.is_symlink() {
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
         Ok(Store {
             dir: dir.to_path_buf(),
             audit_limit: AUDIT_LIMIT,
@@ -182,6 +195,13 @@ impl Store {
     pub fn forget_key(&mut self, name: &str) {
         self.keys.retain(|key| key.name != name);
         self.vetted.retain(|vetted| vetted.key != name);
+        self.tokens
+            .retain(|token| !token.keys.iter().any(|k| k == name));
+    }
+
+    pub fn forget_sandbox(&mut self, name: &str) {
+        self.sandboxes.retain(|sandbox| sandbox.name != name);
+        self.tokens.retain(|token| token.sandbox != name);
     }
 
     pub fn save<T: Serialize>(&self, name: &str, items: &[T]) -> Result<()> {
@@ -222,6 +242,7 @@ impl Store {
         let mut text = serde_json::to_vec(line)?;
         text.push(b'\n');
         out.write_all(&text)?;
+        out.sync_all()?;
         Ok(())
     }
 
@@ -315,6 +336,51 @@ mod tests {
         assert_eq!(again.key("k").unwrap().approved_urls, ["https://h.io/"]);
         assert_eq!(again.audit_tail(5).unwrap()[0]["reason"], "token_unknown");
         assert_eq!(std::fs::read_dir(&state).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn forgetting_a_key_or_sandbox_takes_its_tokens_with_it() {
+        let mut store = Store {
+            dir: PathBuf::new(),
+            audit_limit: AUDIT_LIMIT,
+            keys: Vec::new(),
+            tokens: vec![
+                TokenRecord {
+                    id: "t1".into(),
+                    hash: "h1".into(),
+                    keys: vec!["k".into()],
+                    sandbox: "s".into(),
+                    mode: Mode::App,
+                    methods: vec!["GET".into()],
+                    url_prefixes: Vec::new(),
+                    intent: None,
+                    created: 0,
+                    expires: 1,
+                    uses: None,
+                    revoke: None,
+                },
+                TokenRecord {
+                    id: "t2".into(),
+                    hash: "h2".into(),
+                    keys: vec!["other".into()],
+                    sandbox: "s".into(),
+                    mode: Mode::App,
+                    methods: vec!["GET".into()],
+                    url_prefixes: Vec::new(),
+                    intent: None,
+                    created: 0,
+                    expires: 1,
+                    uses: None,
+                    revoke: None,
+                },
+            ],
+            sandboxes: Vec::new(),
+            vetted: Vec::new(),
+        };
+        store.forget_key("k");
+        assert_eq!(store.tokens.len(), 1);
+        store.forget_sandbox("s");
+        assert!(store.tokens.is_empty());
     }
 
     #[test]

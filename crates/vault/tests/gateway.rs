@@ -483,15 +483,25 @@ fn an_agent_call_is_vetted_once_and_writes_wait_for_a_human() {
     }
     let test = Arc::new(start(true, Box::new(Shared(Arc::clone(&judge)))));
     put_key(&test);
-    let (_, proposed) = admin(
+    let (status, proposed) = admin(
         &test,
         "POST",
         "/keys/stripe/propose",
         json!({ "description": "Stripe" }),
     );
+    assert_eq!(status, 200, "{proposed}");
     assert_eq!(
         proposed["approved_urls"],
         json!(["https://stripe.example/"])
+    );
+    assert!(
+        test.gate
+            .asked
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|asked| asked.contains("propose approved URLs for key stripe")),
+        "proposing URLs needs a human present"
     );
     let socket = sandbox(&test, "agentbox");
     let made = |intent: &str| {
@@ -779,46 +789,67 @@ fn only_the_daemon_owner_may_call_its_sockets() {
 }
 
 #[test]
-fn a_tcp_endpoint_takes_calls_only_from_its_peers() {
+fn deleting_a_key_or_sandbox_kills_its_tokens() {
     let test = start(true, Box::new(NoVetter));
     put_key(&test);
-    let open = |name: &str, peer: &str| {
-        let (status, value) = admin(
-            &test,
-            "POST",
-            "/sandboxes",
-            json!({ "name": name, "tcp": "127.0.0.1:0", "peers": [peer] }),
-        );
-        assert_eq!(status, 200, "{value}");
-        value["sandbox"]["listen"].as_str().unwrap().to_string()
-    };
-    let near = open("near", "127.0.0.1");
-    let far = open("far", "10.9.9.9");
+    let socket = sandbox(&test, "box");
     let url = format!("{}/v1/echo", test.upstream.base);
-    let near_token = token(
+    let made = token(
         &test,
-        json!({ "keys": ["svc"], "sandbox": "near", "mode": "app" }),
+        json!({ "keys": ["svc"], "sandbox": "box", "mode": "app" }),
     );
-    let far_token = token(
+    let headers = [
+        ("X-Vault-Token", made.as_str()),
+        ("X-Vault-Key", "svc"),
+        ("X-Vault-Url", url.as_str()),
+    ];
+    assert_eq!(call(&socket, "GET", &headers, "").0, 200);
+    assert_eq!(admin(&test, "DELETE", "/keys/svc", json!({})).0, 200);
+    put_key(&test);
+    assert_eq!(reason(&call(&socket, "GET", &headers, "")), "token_unknown");
+    let fresh = token(
         &test,
-        json!({ "keys": ["svc"], "sandbox": "far", "mode": "app" }),
+        json!({ "keys": ["svc"], "sandbox": "box", "mode": "app" }),
     );
-    let send = |addr: &str, token: &str| {
-        call_on(
-            &mut TcpStream::connect(addr).unwrap(),
-            "GET",
-            &[
-                ("X-Vault-Token", token),
-                ("X-Vault-Key", "svc"),
-                ("X-Vault-Url", &url),
-            ],
-            "",
-        )
-    };
-    assert_eq!(send(&near, &near_token).0, 200);
-    assert_eq!(reason(&send(&far, &far_token)), "wrong_sandbox");
-    assert_eq!(admin(&test, "DELETE", "/sandboxes/near", json!({})).0, 200);
-    assert!(TcpStream::connect(&near).is_err() || send(&near, &near_token).0 != 200);
+    let headers = [
+        ("X-Vault-Token", fresh.as_str()),
+        ("X-Vault-Key", "svc"),
+        ("X-Vault-Url", url.as_str()),
+    ];
+    assert_eq!(call(&socket, "GET", &headers, "").0, 200);
+    assert_eq!(admin(&test, "DELETE", "/sandboxes/box", json!({})).0, 200);
+    let socket = sandbox(&test, "box");
+    assert_eq!(reason(&call(&socket, "GET", &headers, "")), "token_unknown");
+    let reborn = token(
+        &test,
+        json!({ "keys": ["svc"], "sandbox": "box", "mode": "app" }),
+    );
+    let headers = [
+        ("X-Vault-Token", reborn.as_str()),
+        ("X-Vault-Key", "svc"),
+        ("X-Vault-Url", url.as_str()),
+    ];
+    assert_eq!(call(&socket, "GET", &headers, "").0, 200);
+}
+
+#[test]
+fn a_tcp_sandbox_is_refused_because_a_source_address_is_not_an_identity() {
+    let test = start(true, Box::new(NoVetter));
+    put_key(&test);
+    let (status, value) = admin(
+        &test,
+        "POST",
+        "/sandboxes",
+        json!({ "name": "near", "tcp": "127.0.0.1:0", "peers": ["127.0.0.1"] }),
+    );
+    assert_eq!(status, 400, "{value}");
+    assert!(
+        value
+            .to_string()
+            .contains("tcp sandboxes are not supported"),
+        "{value}"
+    );
+    let _ = &test.upstream;
 }
 
 #[test]

@@ -169,7 +169,7 @@ pub fn route(vault: &Arc<Vault>, request: &Request, caller: &Caller) -> (u16, Va
         ("PUT", ["keys", name]) => put_key(&asked, name),
         ("DELETE", ["keys", name]) => delete_key(&asked, name),
         ("POST", ["keys", name, "rotate"]) => rotate_key(&asked, name),
-        ("POST", ["keys", name, "propose"]) => propose(vault, name, request),
+        ("POST", ["keys", name, "propose"]) => propose(&asked, name),
         ("GET", ["tokens"]) => Ok(list_tokens(vault)),
         ("POST", ["tokens"]) => create_tokens(&asked),
         ("DELETE", ["tokens"]) => revoke_tokens(&asked),
@@ -436,8 +436,11 @@ struct Propose {
         (status = 503, body = Error)
     )
 )]
-fn propose(vault: &Vault, name: &str, request: &Request) -> Reply {
+fn propose(asked: &Asked, name: &str) -> Reply {
+    let vault = asked.vault;
+    let request = asked.request;
     checked_name(name)?;
+    asked.present(&format!("propose approved URLs for key {name}"))?;
     let asked: Propose = body(request)?;
     let mut info = vault.store().key(name).map_or_else(
         || KeyInfo {

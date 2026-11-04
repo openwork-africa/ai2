@@ -105,6 +105,7 @@ enum Wake {
 
 pub enum Bound {
     Unix(UnixListener, PathBuf),
+    #[allow(dead_code)]
     Tcp(TcpListener, Vec<IpAddr>),
 }
 
@@ -117,6 +118,7 @@ pub fn start(
     platform: Platform,
     make: impl FnOnce(Resolver) -> Box<dyn Vetter>,
 ) -> Result<Running> {
+    claim_state_dir(&config.state)?;
     let store = Store::open(&config.state)?;
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -265,14 +267,10 @@ impl Vault {
                 let listener = bind_unix(path, self.config.socket_mode)?;
                 (Bound::Unix(listener, path.clone()), endpoint.clone())
             }
-            Endpoint::Tcp { listen, peers } => {
-                let listener =
-                    TcpListener::bind(listen).with_context(|| format!("listening on {listen}"))?;
-                let actual = Endpoint::Tcp {
-                    listen: listener.local_addr()?.to_string(),
-                    peers: peers.clone(),
-                };
-                (Bound::Tcp(listener, peers.clone()), actual)
+            Endpoint::Tcp { .. } => {
+                anyhow::bail!(
+                    "the {name} sandbox listens on TCP, which the vault no longer supports: remove it and add a unix socket instead"
+                );
             }
         };
         self.listen(name, bound);
@@ -485,6 +483,29 @@ fn make_dirs(dir: &Path, mode: u32) -> Result<()> {
         .with_context(|| format!("making {}", dir.display()))?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode))
         .with_context(|| format!("securing {}", dir.display()))
+}
+
+fn claim_state_dir(state: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(state).with_context(|| format!("making {}", state.display()))?;
+    let path = state.join("daemon.lock");
+    let pid = std::process::id().to_string();
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        let _ = file.write_all(pid.as_bytes());
+        return Ok(());
+    }
+    let live = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .is_some_and(|old| unsafe { libc::kill(old as i32, 0) } == 0);
+    if live {
+        anyhow::bail!("another vault daemon already uses {}", state.display());
+    }
+    std::fs::write(&path, pid).with_context(|| format!("claiming {}", path.display()))
 }
 
 fn bind_admin(config: &Config) -> Result<UnixListener> {

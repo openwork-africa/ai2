@@ -199,9 +199,12 @@ enum SandboxCommand {
         name: String,
         #[arg(long, help = "The gateway's Unix socket [default: one per sandbox]")]
         socket: Option<PathBuf>,
-        #[arg(long, help = "Listen on TCP at this address instead of a Unix socket")]
+        #[arg(
+            long,
+            help = "No longer supported: TCP sandboxes are refused; use a Unix socket"
+        )]
         tcp: Option<String>,
-        #[arg(long, help = "An address a TCP endpoint takes calls from, repeatable")]
+        #[arg(long, help = "No longer supported: TCP sandboxes are refused")]
         peer: Vec<IpAddr>,
     },
     List,

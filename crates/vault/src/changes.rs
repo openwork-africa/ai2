@@ -85,6 +85,7 @@ pub struct AddSandbox {
     pub tcp: Option<String>,
     #[serde(default)]
     #[schema(value_type = Vec<String>)]
+    #[allow(dead_code)]
     pub peers: Vec<IpAddr>,
 }
 
@@ -229,14 +230,10 @@ fn checked_token(asked: CreateToken, http: bool) -> Result<Token, Failure> {
 fn checked_sandbox(vault: &Vault, asked: AddSandbox) -> Result<Step, Failure> {
     checked_name(&asked.name)?;
     let endpoint = match asked.tcp {
-        Some(listen) => {
-            if asked.peers.is_empty() {
-                return Err(bad("a tcp sandbox needs at least one --peer address"));
-            }
-            Endpoint::Tcp {
-                listen,
-                peers: asked.peers,
-            }
+        Some(_) => {
+            return Err(bad(
+                "tcp sandboxes are not supported: a source address is not an identity; use a unix socket",
+            ));
         }
         None => Endpoint::Unix {
             path: asked
@@ -605,6 +602,7 @@ fn change(
             store.forget_key(&name);
             dirty.keys = true;
             dirty.vetted = true;
+            dirty.tokens = true;
             Changed::Deleted(Deleted { deleted: name })
         }
         Ready::Token(record, token, revoke) => {
@@ -631,8 +629,9 @@ fn change(
             Changed::Sandbox(SandboxOut { sandbox })
         }
         Ready::Removed(name) => {
-            store.sandboxes.retain(|s| s.name != name);
+            store.forget_sandbox(&name);
             dirty.sandboxes = true;
+            dirty.tokens = true;
             Changed::Removed(Removed { removed: name })
         }
     })
