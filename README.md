@@ -121,11 +121,7 @@ Use ai2 to register the app in this folder, start it, and run a security review 
 
 [ai2-museedition](https://github.com/openwork-africa/ai2-museedition) is a Linux-only edition with just the Muse harness: no dashboard, no MCP, no other harnesses. Setup runs the Linux steps only. It lives in its own repo and builds on `ai2` as a dependency, choosing its harness subset through the registry; releases are published from tags like `v0.1.0` there, built for Linux x86_64 and arm64 only. The same hooks are open to anyone: `Registry::select` bakes a harness subset, `builtin_with` takes the reviewers, and cargo features choose the crates, so other editions can be built the same way.
 
-After a review, `--document page.html` signs an HTML document with this machine's key and writes `page.signed.html` next to it:
-
-```sh
-ai2 --run-path ./site --objective "Rebuild the landing page" --document ./site/index.html
-```
+Document signing (`--document`, `sign`) lives in the edition, not here.
 
 ## Connect an agent over MCP
 

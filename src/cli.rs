@@ -72,11 +72,6 @@ struct Cli {
     json: bool,
     #[arg(long, help = "Write review.json alone, without report.html")]
     disable_dashboard: bool,
-    #[arg(
-        long,
-        help = "Sign an HTML document after the review and write it as <name>.signed.html"
-    )]
-    document: Option<PathBuf>,
 }
 
 pub fn builtin() -> Vec<Box<dyn Step>> {
@@ -341,11 +336,6 @@ fn execute(
         println!("{}", serde_json::to_string_pretty(&review)?);
     } else {
         println!("{}", written.display());
-    }
-    #[cfg(feature = "signature")]
-    if let Some(document) = &cli.document {
-        let signed = signature::sign_file(&state_dir(build.name), document)?;
-        println!("{}", signed.path.display());
     }
     Ok(ExitCode::SUCCESS)
 }
