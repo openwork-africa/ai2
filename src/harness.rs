@@ -151,7 +151,7 @@ mod tests {
             .command()
             .try_get_matches_from(["harness", "install", "noop"])
             .unwrap();
-        sub.run(&matches).unwrap();
+        let _ = sub.run(&matches).unwrap();
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "noop");
     }
 
@@ -185,7 +185,7 @@ mod tests {
             .command()
             .try_get_matches_from(["harness", "install", "noop"])
             .unwrap();
-        sub.run(&matches).unwrap();
+        let _ = sub.run(&matches).unwrap();
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "noop");
     }
 
@@ -223,6 +223,6 @@ mod tests {
             .command()
             .try_get_matches_from(["harness", "sign-in", "noop", "--web"])
             .unwrap();
-        sub.run(&matches).unwrap();
+        let _ = sub.run(&matches).unwrap();
     }
 }
