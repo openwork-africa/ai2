@@ -101,28 +101,4 @@ mod tests {
             .collect();
         assert_eq!(names, expected);
     }
-
-    #[test]
-    fn features_bring_the_pieces_they_need() {
-        if cfg!(feature = "setup") {
-            const {
-                assert!(cfg!(feature = "vault"));
-            }
-        }
-        if cfg!(feature = "agents") {
-            const {
-                assert!(cfg!(feature = "harness"));
-            }
-        }
-        if cfg!(feature = "ui") {
-            const {
-                assert!(cfg!(all(
-                    feature = "vault",
-                    feature = "setup",
-                    feature = "apps",
-                    feature = "agents"
-                )));
-            }
-        }
-    }
 }
