@@ -2,10 +2,18 @@ use std::path::Path;
 
 use serde::Serialize;
 
+/// How a harness takes the agent's own instructions (its personality) for one run, as a real system or developer prompt.
+/// A harness with none of these has no per-run way to take them (a rules file would have to live in the person's folder), so
+/// the caller puts them at the head of the prompt instead (`takes_personality` says which).
 #[derive(Clone, Debug)]
 pub enum Personality {
+    /// ` <name> '<words>'`: a flag of the harness (`--append-system-prompt`, `--system`).
     Flag(String),
-    Given(fn(&str) -> String),
+    /// ` -c '<key>="<words as a TOML string>"'`: a config override, as Codex (`developer_instructions`) and Muse
+    /// (`run.developer_prompt`) take them. The words are escaped as a TOML basic string (see `line::toml_string`).
+    Config(String),
+    /// `NAME='<words>'` in the harness's environment (Hermes).
+    Env(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -14,7 +22,6 @@ pub struct Headless {
     pub flags: String,
     pub env: Option<String>,
     pub personality: Option<Personality>,
-    pub personality_env: Option<String>,
     pub no_model: bool,
     pub add_dir: Option<String>,
 }

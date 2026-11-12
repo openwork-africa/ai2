@@ -1,4 +1,3 @@
-use crate::line::sh_quote;
 use crate::setup::{Agent, Headless, ModelChoice, Personality, Setup};
 
 pub fn npm_global(package: &str, command: &str) -> String {
@@ -98,6 +97,11 @@ pub fn flag(name: &str) -> Option<Personality> {
     Some(Personality::Flag(name.into()))
 }
 
+/// The instructions as a `-c key="..."` config override (Codex's `developer_instructions`, Muse's `run.developer_prompt`).
+pub fn config(key: &str) -> Option<Personality> {
+    Some(Personality::Config(key.into()))
+}
+
 fn some(text: &str) -> Option<String> {
     Some(text.into())
 }
@@ -136,11 +140,6 @@ fn logo(setup: Setup, file: &str) -> Setup {
         logo: some(file),
         ..setup
     }
-}
-
-fn muse_personality(personality: &str) -> String {
-    let given = serde_json::to_string(personality).unwrap_or_default();
-    format!("-c {}", sh_quote(&format!("run.developer_prompt={given}")))
 }
 
 pub const SKILLS: [(&str, &str); 8] = [
@@ -221,7 +220,10 @@ fn every() -> Vec<Setup> {
                     ModelChoice::new("gpt-5-codex", "GPT-5 Codex"),
                     ModelChoice::new("gpt-5", "GPT-5"),
                 ],
+                // `developer_instructions` adds a developer message to Codex's own instructions; `model_instructions_file` would replace
+                // them, so it is not used.
                 Headless {
+                    personality: config("developer_instructions"),
                     add_dir: some("--add-dir"),
                     ..headless("codex exec", "--json --dangerously-bypass-approvals-and-sandbox")
                 },
@@ -237,6 +239,9 @@ fn every() -> Vec<Setup> {
                     "opencode",
                     "curl -fsSL https://opencode.ai/install | bash".into(),
                     vec![],
+                    // No per-run personality: its `build` agent's `prompt` REPLACES opencode's own system prompt (its tool-use
+                    // guidance), and its additive `instructions` are files, which would sit in the person's folder. The words
+                    // go before the request instead.
                     headless("opencode run", "--format json"),
                 ),
                 "opencode auth login --provider opencode",
@@ -253,6 +258,9 @@ fn every() -> Vec<Setup> {
                     "agy",
                     "curl -fsSL https://antigravity.google/cli/install.sh | bash".into(),
                     vec![],
+                    // No personality: agy has no per-run flag for instructions, and its only way in is a rules file (AGENTS.md,
+                    // GEMINI.md, .agents/rules/) in the person's folder, which would stay for the next run and meet their own.
+                    // The caller puts the instructions at the head of the prompt instead (`takes_personality`).
                     headless("agy -p", "--output-format stream-json --dangerously-skip-permissions --print-timeout 0s"),
                 ),
                 "agy -p 'Reply with the words: signed in.' --output-format text",
@@ -273,7 +281,7 @@ fn every() -> Vec<Setup> {
                         ModelChoice::new("muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"),
                     ],
                     Headless {
-                        personality: Some(Personality::Given(muse_personality)),
+                        personality: config("run.developer_prompt"),
                         ..headless("muse exec", "--json --yolo --disable-request-user-input")
                     },
                 ),
@@ -290,7 +298,7 @@ fn every() -> Vec<Setup> {
                 "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --non-interactive --skip-computer-use".into(),
                 vec![],
                 Headless {
-                    personality_env: some("HERMES_EPHEMERAL_SYSTEM_PROMPT"),
+                    personality: Some(Personality::Env("HERMES_EPHEMERAL_SYSTEM_PROMPT".into())),
                     ..headless("hermes chat -q", "--format stream-json --yolo")
                 },
             ),
@@ -305,6 +313,7 @@ fn every() -> Vec<Setup> {
                     "dsh",
                     dsh_install(),
                     vec![],
+                    // No personality: it has no flag for instructions (see agy), so the caller puts them at the head of the prompt.
                     Headless {
                         env: some("DSH_PERMISSION_MODE=danger-full-access"),
                         no_model: true,

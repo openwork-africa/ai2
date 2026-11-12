@@ -131,8 +131,31 @@ mod tests {
         );
         assert_eq!(
             line("codex", None, Some("Be brief.")),
+            r#"cd '/w' && exec codex exec 'hi' --json --dangerously-bypass-approvals-and-sandbox -c 'developer_instructions="Be brief."'"#
+        );
+        assert_eq!(
+            line("codex", None, None),
             "cd '/w' && exec codex exec 'hi' --json --dangerously-bypass-approvals-and-sandbox"
         );
+        assert_eq!(
+            line("opencode", None, Some("Be brief.")),
+            "cd '/w' && exec opencode run 'hi' --format json"
+        );
+        assert_eq!(
+            line("opencode", None, None),
+            "cd '/w' && exec opencode run 'hi' --format json"
+        );
+        for id in ["antigravity", "deepseek", "opencode"] {
+            assert!(
+                !crate::line::takes_personality(registry.get(id).unwrap()),
+                "{id} has no per-run way to take instructions"
+            );
+            assert_eq!(
+                line(id, None, Some("Be brief.")),
+                line(id, None, None),
+                "{id}"
+            );
+        }
         assert_eq!(
             line("muse", None, Some("Say \"hi\"")),
             r#"cd '/w' && exec muse exec 'hi' --json --yolo --disable-request-user-input -c 'run.developer_prompt="Say \"hi\""'"#
@@ -155,6 +178,78 @@ mod tests {
             task_line(&bare, "hi", "/w", Some("m"), Some("p")),
             "cd '/w' && exec x 'hi'"
         );
+    }
+
+    #[test]
+    fn instructions_become_a_toml_string_with_every_character_that_needs_it_escaped() {
+        use crate::line::toml_string;
+        assert_eq!(toml_string("plain"), "\"plain\"");
+        assert_eq!(toml_string("say \"hi\""), r#""say \"hi\"""#);
+        assert_eq!(toml_string(r#"a\b"#), r#""a\\b""#);
+        assert_eq!(toml_string("one\ntwo\tthree\r"), r#""one\ntwo\tthree\r""#);
+        assert_eq!(
+            toml_string("\u{8}\u{c}\u{1}\u{1f}\u{7f}"),
+            r#""\b\f\u0001\u001F\u007F""#
+        );
+        assert_eq!(toml_string("\"\"\""), r#""\"\"\"""#);
+        assert_eq!(
+            toml_string("it's café 🙂 \u{2028}"),
+            "\"it's café 🙂 \u{2028}\""
+        );
+    }
+
+    #[test]
+    fn what_a_harness_is_started_with_is_the_instructions_exactly_through_the_shell() {
+        use std::process::Command;
+        let words = "He said \"hi\" and it's fine.\nLine two \\ back\\slash\n\"\"\" 'quoted' $HOME `x` $(y) 🙂";
+        let folder = tempfile::tempdir().unwrap();
+        let printing = |personality: Option<Personality>, flags: &str| {
+            let setup = Setup {
+                id: "p".into(),
+                command: "printf".into(),
+                agent: Some(Agent {
+                    headless: Some(Headless {
+                        run: "printf '%s\\n--\\n'".into(),
+                        flags: flags.into(),
+                        personality,
+                        ..Headless::default()
+                    }),
+                    ..Agent::default()
+                }),
+                ..Setup::default()
+            };
+            let line = task_line(
+                &setup,
+                "hi",
+                folder.path().to_str().unwrap(),
+                None,
+                Some(words),
+            );
+            let out = Command::new("sh").arg("-c").arg(line).output().unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8(out.stdout).unwrap()
+        };
+        // Codex: one argument after -c, which TOML reads back as the words.
+        let codex = printing(
+            Some(Personality::Config("developer_instructions".into())),
+            "--json",
+        );
+        let arg = codex
+            .split("\n--\n")
+            .nth(3)
+            .expect("the -c value")
+            .to_string();
+        let value = arg
+            .strip_prefix("developer_instructions=")
+            .expect("the key");
+        assert_eq!(value, crate::line::toml_string(words));
+        let json_like: String =
+            serde_json::from_str(value).expect("TOML and JSON read this string alike");
+        assert_eq!(json_like, words);
     }
 
     #[test]
