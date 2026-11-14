@@ -69,6 +69,32 @@ fn dsh_sign_in() -> String {
     .join("; ")
 }
 
+// Claude Code signs in with `claude setup-token`: the same browser sign-in as `claude auth login`, but it ends with a
+// long-lived token (a year) instead of a session that reaches its time limit and cannot be renewed, so runs nobody is
+// watching keep working. The token is read out of what it printed (under `script`, so it still has a terminal) and
+// kept in CLAUDE_TOKEN_FILE, readable by the account alone; each run hands it over as CLAUDE_CODE_OAUTH_TOKEN.
+pub const CLAUDE_TOKEN_FILE: &str = "$HOME/.claude/oauth-token";
+
+fn claude_sign_in() -> String {
+    [
+        "set -e".to_string(),
+        r#"t=$(mktemp); trap 'rm -f "$t"' EXIT"#.to_string(),
+        r#"if [ "$(uname -s)" = Darwin ]; then script -q "$t" claude setup-token; else script -qfec 'claude setup-token' "$t"; fi"#.to_string(),
+        r#"tok=$(tr -d '\r' < "$t" | grep -aoE 'sk-ant-oat[0-9]+-[A-Za-z0-9_-]{40,}' | tail -n 1 || true)"#.to_string(),
+        r#"[ -n "$tok" ] || { echo "Claude Code gave no token."; exit 1; }"#.to_string(),
+        format!(r#"f="{CLAUDE_TOKEN_FILE}"; mkdir -p "$(dirname "$f")"; umask 077; printf '%s\n' "$tok" > "$f.new" && mv "$f.new" "$f""#),
+        r#"echo "Saved.""#.to_string(),
+    ]
+    .join("\n")
+}
+
+/** What a Claude run puts before `claude`: the token, when there is one; nothing, when it signed in the old way. */
+fn claude_token_env() -> String {
+    format!(
+        r#"$(f="{CLAUDE_TOKEN_FILE}"; [ -s "$f" ] && printf 'CLAUDE_CODE_OAUTH_TOKEN=%s' "$(cat "$f")")"#
+    )
+}
+
 fn gh_install() -> String {
     [
         "set -e",
@@ -202,10 +228,11 @@ fn every() -> Vec<Setup> {
                     Headless {
                         personality: flag("--append-system-prompt"),
                         add_dir: some("--add-dir"),
+                        env: Some(claude_token_env()),
                         ..headless("claude -p", "--output-format stream-json --verbose --dangerously-skip-permissions")
                     },
                 ),
-                "claude auth login",
+                &claude_sign_in(),
                 "Open the sign-in page, sign in with your Claude account, then paste the code it shows you below.",
             ),
             "claude.svg",

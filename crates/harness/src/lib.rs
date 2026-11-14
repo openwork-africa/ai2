@@ -127,7 +127,7 @@ mod tests {
         );
         assert_eq!(
             line("claude", Some("opus"), Some("Be brief.")),
-            "cd '/w' && exec claude -p 'hi' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --append-system-prompt 'Be brief.'"
+            r#"cd '/w' && exec env $(f="$HOME/.claude/oauth-token"; [ -s "$f" ] && printf 'CLAUDE_CODE_OAUTH_TOKEN=%s' "$(cat "$f")") claude -p 'hi' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --append-system-prompt 'Be brief.'"#
         );
         assert_eq!(
             line("codex", None, Some("Be brief.")),

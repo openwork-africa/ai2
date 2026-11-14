@@ -818,11 +818,17 @@ mod tests {
         };
         assert_eq!(
             line("claude", None),
-            ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --add-dir '/s'"]
+            [
+                "-c",
+                r#"cd '/w' && exec env $(f="$HOME/.claude/oauth-token"; [ -s "$f" ] && printf 'CLAUDE_CODE_OAUTH_TOKEN=%s' "$(cat "$f")") claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --add-dir '/s'"#
+            ]
         );
         assert_eq!(
             line("claude", Some("opus")),
-            ["-c", "cd '/w' && exec claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --add-dir '/s'"]
+            [
+                "-c",
+                r#"cd '/w' && exec env $(f="$HOME/.claude/oauth-token"; [ -s "$f" ] && printf 'CLAUDE_CODE_OAUTH_TOKEN=%s' "$(cat "$f")") claude -p 'review it' --output-format stream-json --verbose --dangerously-skip-permissions --model 'opus' --add-dir '/s'"#
+            ]
         );
         assert_eq!(
             line("codex", None),
