@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::terminal::{code_in, in_terminal, links_in, plain_text};
+use crate::terminal::{code_in, in_terminal, links_in, plain_text, without_tokens};
 
 const PROMPT_PAUSE: Duration = Duration::from_millis(250);
 const INPUT_CHARS: usize = 2000;
@@ -58,7 +58,7 @@ struct Reader {
 
 impl Reader {
     fn handle(&mut self, output: &str, emit: &mut impl FnMut(&Event)) {
-        let mut raw = output.to_string();
+        let mut raw = without_tokens(output);
         for secret in &self.typed {
             raw = raw.replace(secret.as_str(), "••••");
         }

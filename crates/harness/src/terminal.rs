@@ -20,6 +20,13 @@ static DEVICE_CODE: LazyLock<Regex> =
     LazyLock::new(|| pattern(r"\b[A-Z0-9]{4,5}(?:-[A-Z0-9]{4,5}){1,2}\b"));
 static CALLED_CODE: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)\bcode\b"));
 static TRAILING: LazyLock<Regex> = LazyLock::new(|| pattern(r"[.,;:]+$"));
+static TOKEN: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"\b(sk-ant-[a-z]+[0-9]*-)[A-Za-z0-9_-]+"));
+
+/// A token a sign-in printed (Claude Code's setup-token), never passed on: only its kind is left.
+pub fn without_tokens(raw: &str) -> String {
+    TOKEN.replace_all(raw, "${1}••••").into_owned()
+}
 
 pub fn in_terminal(line: &str, os: &str) -> Vec<String> {
     let line = format!("{TERMINAL}{line}");
@@ -78,6 +85,14 @@ pub fn code_in(line: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_printed_token_is_hidden_and_the_rest_kept() {
+        assert_eq!(
+            super::without_tokens("Your OAuth token: sk-ant-oat01-AbC_d-123xyz\nStore it."),
+            "Your OAuth token: sk-ant-oat01-••••\nStore it."
+        );
+    }
+
     use super::*;
 
     #[test]
