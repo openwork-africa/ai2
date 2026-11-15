@@ -99,11 +99,15 @@ impl Reader {
         self.typed.insert(clean.to_string());
         if let Some(stdin) = input {
             let _ = stdin
-                .write_all(format!("{clean}\r").as_bytes())
+                .write_all(clean.as_bytes())
                 .and_then(|_| stdin.flush());
+            thread::sleep(ENTER_AFTER);
+            let _ = stdin.write_all(b"\r").and_then(|_| stdin.flush());
         }
     }
 }
+
+const ENTER_AFTER: Duration = Duration::from_millis(300);
 
 fn pipe(mut stream: impl Read + Send + 'static, at: usize, to: Sender<Message>) {
     thread::spawn(move || {
