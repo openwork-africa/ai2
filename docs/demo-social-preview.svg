@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="dots" width="12" height="12" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#111111" opacity=".18"/>
+    </pattern>
+    <clipPath id="coverClip"><rect x="58" y="48" width="410" height="534" rx="2"/></clipPath>
+  </defs>
+  <rect width="1200" height="630" fill="#ddd6c9"/>
+  <path d="M0 0h250v150H0z" fill="#ffd400" opacity=".86"/>
+  <path d="M1010 478h190v152h-190z" fill="#1397c1" opacity=".6"/>
+  <path d="M0 210 1200 20M0 245 1200 55M0 280 1200 90" stroke="#111" stroke-width="1" opacity=".06"/>
+  <rect x="36" y="28" width="1130" height="560" fill="#111"/>
+  <rect x="24" y="16" width="1130" height="560" fill="#fffdf8" stroke="#111" stroke-width="3"/>
+
+  <g clip-path="url(#coverClip)">
+    <rect x="58" y="48" width="410" height="534" fill="#f4e7c8"/>
+    <rect x="58" y="48" width="410" height="534" fill="url(#dots)"/>
+    <circle cx="395" cy="174" r="135" fill="#ffd400"/>
+    <path d="M58 354 468 214v238L166 582H58z" fill="#168db5"/>
+    <path d="m58 508 410-144v218H58z" fill="#e94a3e"/>
+    <path d="M58 554 346 582H58z" fill="#111"/>
+    <rect x="58" y="48" width="26" height="534" fill="#e94a3e" stroke="#111" stroke-width="2"/>
+    <path d="M64 70h14M64 94h14M64 118h14M64 142h14M64 166h14M64 190h14M64 214h14M64 238h14M64 262h14M64 286h14M64 310h14M64 334h14M64 358h14M64 382h14M64 406h14M64 430h14M64 454h14M64 478h14M64 502h14M64 526h14M64 550h14" stroke="#111" stroke-width="2" opacity=".65"/>
+    <text x="112" y="246" fill="#111" font-family="Arial, sans-serif" font-size="78" font-weight="800" letter-spacing="-7">the</text>
+    <text x="112" y="322" fill="#111" font-family="Arial, sans-serif" font-size="78" font-weight="800" letter-spacing="-7">demo</text>
+    <text x="112" y="398" fill="#111" font-family="Arial, sans-serif" font-size="66" font-weight="800" letter-spacing="-6">director</text>
+  </g>
+  <rect x="58" y="48" width="410" height="534" fill="none" stroke="#111" stroke-width="3"/>
+
+  <text x="530" y="104" fill="#6b6b6b" font-family="Arial, sans-serif" font-size="17" font-weight="700" letter-spacing="4">DEMO SKILL · LLM WORKFLOW</text>
+  <text x="526" y="225" fill="#111" font-family="Arial, sans-serif" font-size="78" font-weight="800" letter-spacing="-5">The Demo</text>
+  <text x="526" y="312" fill="#111" font-family="Arial, sans-serif" font-size="78" font-weight="800" letter-spacing="-5">Director</text>
+  <rect x="530" y="346" width="84" height="8" fill="#ffd400"/>
+  <text x="526" y="411" fill="#222" font-family="Arial, sans-serif" font-size="29" font-weight="500">Give your agent direction</text>
+  <text x="526" y="451" fill="#222" font-family="Arial, sans-serif" font-size="29" font-weight="500">like Steven Spielberg.</text>
+  <text x="530" y="526" fill="#6b6b6b" font-family="Arial, sans-serif" font-size="17" font-weight="700" letter-spacing="3">COPY THE SKILL · LET YOUR AGENT COOK</text>
+</svg>
